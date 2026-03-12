@@ -104,6 +104,34 @@ const COINGECKO_IDS: Record<string, string> = {
   NEARUSDT: "near",
 };
 
+/**
+ * Fallback prices — used when the WebSocket/API hasn't provided data yet
+ * or if a fetch fails. These are approximate and reset on the next real tick.
+ * This prevents the UI from ever showing $0 or zeros.
+ */
+const FALLBACK_PRICES: Record<string, number> = {
+  BTCUSDT: 65000,
+  ETHUSDT: 3200,
+  BNBUSDT: 380,
+  SOLUSDT: 145,
+  XRPUSDT: 0.52,
+  ADAUSDT: 0.45,
+  DOGEUSDT: 0.12,
+  AVAXUSDT: 35,
+  LINKUSDT: 14,
+  MATICUSDT: 0.68,
+  ICPUSDT: 8.5,
+  PEPEUSDT: 0.00001234,
+  SHIBUSDT: 0.00002521,
+  ARBUSDT: 0.85,
+  OPUSDT: 1.8,
+  DOTUSDT: 7.2,
+  UNIUSDT: 9.5,
+  ATOMUSDT: 8.1,
+  LTCUSDT: 82,
+  NEARUSDT: 4.2,
+};
+
 // GEM = low cap <$50M MC (only PEPE and SHIB)
 const GEM_SYMBOLS = new Set(["PEPEUSDT", "SHIBUSDT"]);
 const MID_CAP_SYMBOLS = new Set([
@@ -136,7 +164,6 @@ const RATIONALES = [
   "Institutional OB tested, Volume Spike confirms entry — high-probability setup",
 ];
 
-// Persistent signal cache key
 const SIGNAL_CACHE_LS_KEY = "ts_signal_cache_v2";
 
 function loadSignalCache(): Record<string, Signal> {
@@ -151,26 +178,6 @@ function saveSignalCache(cache: Record<string, Signal>) {
   try {
     localStorage.setItem(SIGNAL_CACHE_LS_KEY, JSON.stringify(cache));
   } catch {}
-}
-
-/**
- * Check if current market data shows a high-confluence opportunity:
- * RSI proxy (momentum) + Volume spike + FVG zone detection
- */
-function hasHighConfluence(priceData: TokenPrice): boolean {
-  const change24h = priceData.change24h;
-  const priceRange = priceData.high24h - priceData.low24h;
-  const priceInRange =
-    priceRange > 0 ? (priceData.price - priceData.low24h) / priceRange : 0.5;
-  const volumeRatio =
-    priceData.marketCap > 0 ? priceData.volume24h / priceData.marketCap : 0;
-
-  // RSI proxy: strong momentum (change24h), volume spike, FVG zone (price position)
-  const bullishMomentum = change24h > 1.5 && priceInRange > 0.55;
-  const highVolume = volumeRatio > 0.08;
-  const fvgZone = priceInRange > 0.4 && priceInRange < 0.75;
-
-  return bullishMomentum && (highVolume || fvgZone);
 }
 
 function buildSignal(
@@ -204,6 +211,7 @@ function buildSignal(
   const trendConfirm = priceInRange > 0.6;
   const strongMomentum = change24h > 4;
 
+  // Base confidence 80–92% range; confluence boosts it toward 98%
   let confidence = 80 + ((idx * 7 + Math.floor(price)) % 8);
   if (bullishMomentum) confidence += 8;
   if (highVolume) confidence += 7;
@@ -249,23 +257,43 @@ function buildSignal(
     winRate,
     marketCapTier,
     isGoldenSniperEligible,
-    // CRITICAL: Use preserved createdAt if available — prevents timestamp reset on refresh
     createdAt: preservedCreatedAt ?? Date.now(),
+  };
+}
+
+/** Build fallback price data from static prices so signals can render on first load */
+function makeFallbackPriceData(symbol: string): TokenPrice {
+  const price = FALLBACK_PRICES[symbol] ?? 1;
+  return {
+    symbol,
+    price,
+    change24h: 1.2,
+    volume24h: price * 1e6,
+    high24h: price * 1.03,
+    low24h: price * 0.97,
+    marketCap: 0,
+    direction: "neutral",
+    flashColor: null,
   };
 }
 
 export function useTokenData() {
   const [prices, setPrices] = useState<Record<string, TokenPrice>>({});
   const [signals, setSignals] = useState<Signal[]>(() => {
-    // Load persisted signals immediately on mount to avoid timestamp reset
+    // Immediately load persisted signals to avoid timestamp reset & blank state
     const cache = loadSignalCache();
-    return Object.values(cache);
+    const cached = Object.values(cache);
+    if (cached.length > 0) return cached;
+    // On first ever load, seed from fallback prices so the list is never empty
+    return TRACKED_SYMBOLS.map((symbol, idx) => {
+      const fb = makeFallbackPriceData(symbol);
+      return buildSignal(symbol, fb, idx, undefined);
+    });
   });
   const [connected, setConnected] = useState(false);
   const prevPrices = useRef<Record<string, number>>({});
   const flashTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const wsRef = useRef<WebSocket | null>(null);
-  // Initialize signal cache from localStorage — PERSISTS across refreshes
   const signalCache = useRef<Record<string, Signal>>(loadSignalCache());
   const marketCaps = useRef<Record<string, number>>({});
 
@@ -305,57 +333,35 @@ export function useTokenData() {
   const refreshSignals = useCallback((priceMap: Record<string, TokenPrice>) => {
     let cacheChanged = false;
 
-    const updated = TRACKED_SYMBOLS.filter((s) => priceMap[s]).map((s, i) => {
+    // ── ALWAYS generate a signal for EVERY tracked symbol ──────────────────
+    // Confluence only affects the confidence score, not whether a signal shows.
+    // This ensures "Signals Today" counter always matches the rendered card count.
+    const updated = TRACKED_SYMBOLS.map((s, i) => {
+      const priceData = priceMap[s] ?? makeFallbackPriceData(s);
       const existing = signalCache.current[s];
-      const livePrice = priceMap[s].price;
 
       if (existing) {
-        // Signal already exists — keep it STATIC (don't change entry/TP/SL)
-        // Only replace if price has drifted significantly AND confluence conditions are newly met
-        const drift = Math.abs(livePrice - existing.entry) / existing.entry;
-        if (drift < 0.02) {
-          // Under 2% drift — keep existing signal with original createdAt
+        // Signal already cached — keep it STATIC (preserve Entry/TP/SL)
+        // Only rebuild if live price has drifted >5% (significant market move)
+        const drift =
+          Math.abs(priceData.price - existing.entry) / existing.entry;
+        if (drift < 0.05) {
           return existing;
-        }
-        // Significant drift — only create new signal if confluence is detected
-        if (!hasHighConfluence(priceMap[s])) {
-          // No confluence — keep existing signal
-          return existing;
-        }
-      } else {
-        // No existing signal — only generate if confluence conditions met
-        if (!hasHighConfluence(priceMap[s])) {
-          return null; // Skip this symbol
         }
       }
 
-      // Generate new signal (preserving createdAt if replacing)
-      const fresh = buildSignal(
-        s,
-        priceMap[s],
-        i,
-        existing?.createdAt, // Preserve original timestamp
-      );
+      // Build new signal, preserving original createdAt timestamp
+      const fresh = buildSignal(s, priceData, i, existing?.createdAt);
       signalCache.current[s] = fresh;
       cacheChanged = true;
       return fresh;
     });
 
-    // Filter out nulls (symbols without confluence)
-    const validSignals = updated.filter((s): s is Signal => s !== null);
-
-    // Fallback: if no confluence signals found, use cached signals if available
-    // This ensures the signals tab always shows something after first load
-    const finalSignals =
-      validSignals.length > 0
-        ? validSignals
-        : Object.values(signalCache.current);
-
     if (cacheChanged) {
       saveSignalCache(signalCache.current);
     }
 
-    setSignals(finalSignals);
+    setSignals(updated);
   }, []);
 
   useEffect(() => {
@@ -382,6 +388,8 @@ export function useTokenData() {
         for (const tick of data) {
           if (!TRACKED_SYMBOLS.includes(tick.s)) continue;
           const newPrice = Number.parseFloat(tick.c);
+          // Reject clearly invalid prices (0 or negative)
+          if (!newPrice || newPrice <= 0) continue;
           const prev = prevPrices.current[tick.s];
           let direction: "up" | "down" | "neutral" = "neutral";
           let flashColor: string | null = null;

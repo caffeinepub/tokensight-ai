@@ -13,21 +13,21 @@ interface Props {
   goldenHistoryEntry?: HistoryEntry | null;
 }
 
+/**
+ * Format price for display.
+ * - Below $1: always 8 decimal places so micro-prices like SHIB/PEPE show correctly.
+ * - $1 and above: 2 decimal places with thousands separator.
+ */
 function fmt(n: number): string {
-  if (!n || Number.isNaN(n)) return "—";
+  if (!n || Number.isNaN(n) || n === 0) return "—";
   if (n >= 1) {
     return n.toLocaleString("en-US", {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     });
   }
-  if (n >= 0.0001) {
-    return n
-      .toFixed(6)
-      .replace(/(\.\d*?[1-9])0+$/, "$1")
-      .replace(/\.0+$/, ".000001");
-  }
-  return n.toPrecision(4);
+  // 8 decimal places ensures SHIB ($0.00002521), PEPE ($0.00001234) display correctly
+  return n.toFixed(8);
 }
 
 function relativeTime(ts: number): string {
@@ -83,7 +83,9 @@ function SignalCard({
       data-ocid={`signal.item.${index + 1}`}
       className="relative bg-[#0D1117] rounded-xl border border-[#1C2333] overflow-hidden"
       style={{
-        borderLeft: `3px solid ${signal.trendAlignment === "BULL" ? "#00FF88" : "#FF3B5C"}`,
+        borderLeft: `3px solid ${
+          signal.trendAlignment === "BULL" ? "#00FF88" : "#FF3B5C"
+        }`,
       }}
     >
       {locked && (
@@ -233,7 +235,7 @@ function SignalCard({
             {signal.rationale}
           </p>
 
-          {/* Price grid \u2014 static values locked at signal creation */}
+          {/* Price grid — static values locked at signal creation */}
           <div className="grid grid-cols-5 gap-1.5">
             {[
               { label: "ENTRY", value: signal.entry, color: "#00D4FF" },
@@ -250,7 +252,7 @@ function SignalCard({
                 <p
                   className="text-[10px] font-mono font-bold overflow-hidden text-ellipsis"
                   style={{ color: c }}
-                  title={String(value)}
+                  title={`$${value}`}
                 >
                   ${fmt(value)}
                 </p>
@@ -305,7 +307,7 @@ export function AlphaSection({
         <h2 className="text-white font-mono font-bold text-sm">
           ACTIVE SIGNALS
           <span className="text-gray-500 font-normal ml-2">
-            ({isPro || isAdmin ? signals.length : signals.length} total
+            ({signals.length} total
             {!isPro && !isAdmin && lockedCount > 0 && (
               <span className="text-[#D4AF37]"> · {lockedCount} locked</span>
             )}
@@ -324,7 +326,8 @@ export function AlphaSection({
         )}
       </div>
 
-      {/* Render ALL signals — 1st is always free, rest are locked for non-Pro */}
+      {/* Render ALL signals via .map() — no filtering or limiting */}
+      {/* 1st is always free, rest are locked for non-Pro/non-Admin */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
         {signals.map((s, i) => (
           <SignalCard
@@ -337,6 +340,18 @@ export function AlphaSection({
           />
         ))}
       </div>
+
+      {signals.length === 0 && (
+        <div
+          data-ocid="signals.empty_state"
+          className="text-center py-12 text-gray-500 font-mono text-sm"
+        >
+          <p>Scanning market for high-confidence setups...</p>
+          <p className="text-xs text-gray-600 mt-1">
+            Signals appear when real SMC confluence is detected.
+          </p>
+        </div>
+      )}
 
       {!isPro && !isAdmin && lockedCount > 0 && (
         <div className="mt-4 rounded-xl border border-[#D4AF37]/20 bg-[#D4AF37]/5 px-4 py-3 text-center">

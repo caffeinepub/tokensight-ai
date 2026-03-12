@@ -28,6 +28,7 @@ const INITIAL_STATE: WalletState = {
 
 const LS_SESSION_KEY = "ts_wallet_session";
 const SESSION_MAX_TTL = BigInt(7 * 24 * 60 * 60) * BigInt(1_000_000_000);
+const SS_PENDING_KEY = "ts_pending_wallet_type";
 
 interface StoredSession {
   walletType: WalletType;
@@ -69,6 +70,7 @@ function saveSession(session: Omit<StoredSession, "expiresAt">) {
 function clearSession() {
   try {
     localStorage.removeItem(LS_SESSION_KEY);
+    sessionStorage.removeItem(SS_PENDING_KEY);
   } catch {}
 }
 
@@ -88,30 +90,18 @@ function getStoredSession(): StoredSession | null {
   }
 }
 
-/** Manual Window Handshake — detect popup blocker before calling auth flow */
-function tryOpenPopup(url: string): { popup: Window | null; blocked: boolean } {
-  const features =
-    "toolbar=0,location=0,menubar=0,width=525,height=600,left=100,top=100";
-  let popup: Window | null = null;
-  try {
-    popup = window.open(url, "_blank", features);
-  } catch {
-    popup = null;
-  }
-  const blocked = !popup || popup.closed || typeof popup.closed === "undefined";
-  return { popup, blocked };
-}
-
 export function useICPWallet() {
   const [walletState, setWalletState] = useState<WalletState>(INITIAL_STATE);
 
   useEffect(() => {
     let cancelled = false;
 
-    // Check if user just returned from a redirect-based auth flow
-    const pendingWalletType = localStorage.getItem(
-      "ts_pending_wallet_type",
+    // ── REDIRECT RETURN HANDLER ──────────────────────────────────────────────
+    // After NNS/NFID redirects back to the app, sessionStorage holds the pending type.
+    const pendingWalletType = sessionStorage.getItem(
+      SS_PENDING_KEY,
     ) as WalletType | null;
+
     if (pendingWalletType === "nns" || pendingWalletType === "nfid") {
       import("@dfinity/auth-client")
         .then(({ AuthClient }) =>
@@ -125,7 +115,7 @@ export function useICPWallet() {
         .then(async (client) => {
           const isAuth = await client.isAuthenticated();
           if (cancelled) return;
-          localStorage.removeItem("ts_pending_wallet_type");
+          sessionStorage.removeItem(SS_PENDING_KEY);
           if (isAuth) {
             const identity = client.getIdentity();
             const principal = identity.getPrincipal().toString();
@@ -147,12 +137,13 @@ export function useICPWallet() {
             }));
           }
         })
-        .catch(() => localStorage.removeItem("ts_pending_wallet_type"));
+        .catch(() => sessionStorage.removeItem(SS_PENDING_KEY));
       return () => {
         cancelled = true;
       };
     }
 
+    // ── PERSISTED SESSION RESTORE ────────────────────────────────────────────
     const session = getStoredSession();
     if (!session) return;
 
@@ -225,193 +216,110 @@ export function useICPWallet() {
     };
   }, []);
 
-  const connectWallet = useCallback(async (type: WalletType) => {
-    if (type === "nns") {
-      setWalletState((p) => ({
-        ...p,
-        connecting: true,
-        error: null,
-        popupBlocked: false,
-        manualLoginUrl: null,
-        walletType: "nns",
-      }));
-      try {
-        const { AuthClient } = await import("@dfinity/auth-client");
-        const authClient = await AuthClient.create({
-          idleOptions: { disableIdle: true, disableDefaultIdleCallback: true },
-        });
-        const providerUrl = "https://identity.ic0.app";
-        const { blocked } = tryOpenPopup(providerUrl);
-        const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
-        if (blocked || isMobile) {
-          // Use full-page redirect for mobile or when popup is blocked
-          localStorage.setItem("ts_pending_wallet_type", "nns");
-          authClient.login({
-            identityProvider: providerUrl,
-            maxTimeToLive: SESSION_MAX_TTL,
-            // No windowOpenerFeatures = full page redirect
-            onSuccess: () => {
-              const identity = authClient.getIdentity();
-              const principal = identity.getPrincipal().toString();
-              localStorage.removeItem("ts_pending_wallet_type");
-              saveSession({ walletType: "nns", principal, balanceICP: null });
-              setWalletState((p) => ({
-                ...p,
-                connected: true,
-                principal,
-                balanceICP: null,
-                connecting: false,
-                walletType: "nns",
-                error: null,
-                popupBlocked: false,
-                manualLoginUrl: null,
-              }));
-            },
-            onError: (err) => {
-              localStorage.removeItem("ts_pending_wallet_type");
-              setWalletState((p) => ({
-                ...p,
-                connecting: false,
-                error: err ?? "Login failed",
-                walletType: null,
-              }));
-            },
-          });
-          return;
-        }
-        await new Promise<void>((resolve, reject) => {
-          authClient.login({
-            identityProvider: providerUrl,
-            maxTimeToLive: SESSION_MAX_TTL,
-            windowOpenerFeatures:
-              "toolbar=0,location=0,menubar=0,width=525,height=600,left=100,top=100",
-            onSuccess: () => resolve(),
-            onError: (err) =>
-              reject(new Error(err ?? "Internet Identity login failed")),
-          });
-        });
-        const identity = authClient.getIdentity();
+  // ── FORCE LOGIN CHECK ──────────────────────────────────────────────────────
+  // Called by the "Force Login" button — manually checks if AuthClient has a
+  // valid delegation (e.g. after the user manually returned from the provider).
+  const forceLoginCheck = useCallback(async (): Promise<boolean> => {
+    try {
+      const { AuthClient } = await import("@dfinity/auth-client");
+      const client = await AuthClient.create({
+        idleOptions: { disableIdle: true, disableDefaultIdleCallback: true },
+      });
+      const isAuth = await client.isAuthenticated();
+      if (isAuth) {
+        const identity = client.getIdentity();
         const principal = identity.getPrincipal().toString();
-        saveSession({ walletType: "nns", principal, balanceICP: null });
+        const walletType =
+          (sessionStorage.getItem(SS_PENDING_KEY) as WalletType) ??
+          getStoredSession()?.walletType ??
+          "nns";
+        sessionStorage.removeItem(SS_PENDING_KEY);
+        saveSession({ walletType, principal, balanceICP: null });
         setWalletState((p) => ({
           ...p,
           connected: true,
+          walletType,
           principal,
           balanceICP: null,
           connecting: false,
-          walletType: "nns",
           error: null,
           popupBlocked: false,
           manualLoginUrl: null,
         }));
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : "NNS login failed";
-        const isBlocked =
-          msg.toLowerCase().includes("closed") ||
-          msg.toLowerCase().includes("blocked") ||
-          msg.toLowerCase().includes("popup");
-        setWalletState((p) => ({
-          ...p,
-          connecting: false,
-          error: isBlocked ? null : msg,
-          popupBlocked: isBlocked,
-          manualLoginUrl: isBlocked ? "https://identity.ic0.app" : null,
-          walletType: null,
-        }));
+        return true;
       }
-      return;
-    }
+    } catch {}
+    return false;
+  }, []);
 
-    if (type === "nfid") {
+  const connectWallet = useCallback(async (type: WalletType) => {
+    // ── NNS / NFID — always full-window redirect ─────────────────────────────
+    if (type === "nns" || type === "nfid") {
+      const providerUrl =
+        type === "nns"
+          ? "https://identity.ic0.app"
+          : "https://nfid.one/authenticate";
+
       setWalletState((p) => ({
         ...p,
         connecting: true,
         error: null,
         popupBlocked: false,
         manualLoginUrl: null,
-        walletType: "nfid",
+        walletType: type,
       }));
+
       try {
         const { AuthClient } = await import("@dfinity/auth-client");
         const authClient = await AuthClient.create({
           idleOptions: { disableIdle: true, disableDefaultIdleCallback: true },
         });
-        const providerUrl = "https://nfid.one/authenticate";
-        const { blocked } = tryOpenPopup(providerUrl);
-        const isMobileNfid = /Mobi|Android|iPhone|iPad/i.test(
-          navigator.userAgent,
-        );
-        if (blocked || isMobileNfid) {
-          // Use full-page redirect for mobile or when popup is blocked
-          localStorage.setItem("ts_pending_wallet_type", "nfid");
-          authClient.login({
-            identityProvider: providerUrl,
-            maxTimeToLive: SESSION_MAX_TTL,
-            onSuccess: () => {
-              const identity = authClient.getIdentity();
-              const principal = identity.getPrincipal().toString();
-              localStorage.removeItem("ts_pending_wallet_type");
-              saveSession({ walletType: "nfid", principal, balanceICP: null });
-              setWalletState((p) => ({
-                ...p,
-                connected: true,
-                principal,
-                balanceICP: null,
-                connecting: false,
-                walletType: "nfid",
-                error: null,
-                popupBlocked: false,
-                manualLoginUrl: null,
-              }));
-            },
-            onError: (err) => {
-              localStorage.removeItem("ts_pending_wallet_type");
-              setWalletState((p) => ({
-                ...p,
-                connecting: false,
-                error: err ?? "Login failed",
-                walletType: null,
-              }));
-            },
-          });
-          return;
-        }
-        await new Promise<void>((resolve, reject) => {
-          authClient.login({
-            identityProvider: providerUrl,
-            maxTimeToLive: SESSION_MAX_TTL,
-            windowOpenerFeatures:
-              "toolbar=0,location=0,menubar=0,width=525,height=600,left=100,top=100",
-            onSuccess: () => resolve(),
-            onError: (err) => reject(new Error(err ?? "NFID login failed")),
-          });
+
+        // Save pending wallet type to sessionStorage BEFORE the redirect happens
+        sessionStorage.setItem(SS_PENDING_KEY, type);
+
+        // Full-window redirect — NO windowOpenerFeatures = full page redirect
+        authClient.login({
+          identityProvider: providerUrl,
+          maxTimeToLive: SESSION_MAX_TTL,
+          onSuccess: () => {
+            // Called if the browser uses a popup internally; also called after redirect returns
+            const identity = authClient.getIdentity();
+            const principal = identity.getPrincipal().toString();
+            sessionStorage.removeItem(SS_PENDING_KEY);
+            saveSession({ walletType: type, principal, balanceICP: null });
+            setWalletState((p) => ({
+              ...p,
+              connected: true,
+              principal,
+              balanceICP: null,
+              connecting: false,
+              walletType: type,
+              error: null,
+              popupBlocked: false,
+              manualLoginUrl: null,
+            }));
+          },
+          onError: (err) => {
+            sessionStorage.removeItem(SS_PENDING_KEY);
+            setWalletState((p) => ({
+              ...p,
+              connecting: false,
+              error: err ?? "Login failed",
+              walletType: null,
+            }));
+          },
         });
-        const identity = authClient.getIdentity();
-        const principal = identity.getPrincipal().toString();
-        saveSession({ walletType: "nfid", principal, balanceICP: null });
-        setWalletState((p) => ({
-          ...p,
-          connected: true,
-          principal,
-          balanceICP: null,
-          connecting: false,
-          walletType: "nfid",
-          error: null,
-          popupBlocked: false,
-          manualLoginUrl: null,
-        }));
       } catch (e) {
-        const msg = e instanceof Error ? e.message : "NFID login failed";
-        const isBlocked =
-          msg.toLowerCase().includes("closed") ||
-          msg.toLowerCase().includes("blocked") ||
-          msg.toLowerCase().includes("popup");
+        sessionStorage.removeItem(SS_PENDING_KEY);
+        const msg =
+          e instanceof Error
+            ? e.message
+            : `${type === "nns" ? "NNS" : "NFID"} login failed`;
         setWalletState((p) => ({
           ...p,
           connecting: false,
-          error: isBlocked ? null : msg,
-          popupBlocked: isBlocked,
-          manualLoginUrl: isBlocked ? "https://nfid.one/authenticate" : null,
+          error: msg,
           walletType: null,
         }));
       }
@@ -525,7 +433,7 @@ export function useICPWallet() {
     }
   }, []);
 
-  /** Manual Principal ID entry for admin/pro users who can't use popup flow */
+  /** Manual Principal ID entry for admin/pro users */
   const connectManualPrincipal = useCallback((principal: string) => {
     if (!principal.trim()) return;
     saveSession({
@@ -596,6 +504,7 @@ export function useICPWallet() {
     walletState,
     connectWallet,
     connectManualPrincipal,
+    forceLoginCheck,
     payWithWallet,
     disconnect,
   };

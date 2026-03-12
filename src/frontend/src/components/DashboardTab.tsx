@@ -36,21 +36,20 @@ const COIN_COLORS: Record<string, string> = {
   NEARUSDT: "#00C08B",
 };
 
+/**
+ * Format price for display.
+ * - Below $1: 8 decimal places so micro-prices (SHIB, PEPE) show correctly.
+ * - $1 and above: 2 decimal places with thousands separator.
+ */
 function fmt(n: number): string {
-  if (!n || Number.isNaN(n)) return "—";
+  if (!n || Number.isNaN(n) || n === 0) return "—";
   if (n >= 1) {
     return n.toLocaleString("en-US", {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     });
   }
-  if (n >= 0.0001) {
-    return n
-      .toFixed(6)
-      .replace(/(\.\d*?[1-9])0+$/, "$1")
-      .replace(/\.0+$/, ".000001");
-  }
-  return n.toPrecision(4);
+  return n.toFixed(8);
 }
 
 function fmtMC(n: number): string {
@@ -95,7 +94,7 @@ export function DashboardTab({
         .finally(() => setFgLoading(false));
     };
     fetchFG();
-    const iv = setInterval(fetchFG, 300_000); // refresh every 5 min
+    const iv = setInterval(fetchFG, 300_000);
     return () => clearInterval(iv);
   }, []);
 
@@ -119,9 +118,6 @@ export function DashboardTab({
           return `1:${avg.toFixed(1)}`;
         })()
       : null;
-
-  // Signals Today: always show the live signal count from the engine
-  const signalsTodayDisplay = signalCount;
 
   const fearGreedColor = fearGreed
     ? fearGreed.value < 25
@@ -166,13 +162,10 @@ export function DashboardTab({
         {[
           {
             label: "Signals Today",
-            value: String(signalsTodayDisplay),
+            value: String(signalCount),
             icon: Activity,
             color: "#00D4FF",
-            sub:
-              signalsTodayDisplay === 0
-                ? "No signals yet"
-                : `${signalsTodayDisplay} active`,
+            sub: signalCount === 0 ? "No signals yet" : `${signalCount} active`,
           },
           {
             label: "Win Rate",
@@ -350,7 +343,7 @@ export function DashboardTab({
           )}
         </div>
 
-        {/* Market Sentiment — combined SMC + Social */}
+        {/* Market Sentiment */}
         <div className="bg-[#0D1117] rounded-xl border border-[#1C2333] p-5">
           <div className="flex items-center justify-between mb-4">
             <div>

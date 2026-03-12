@@ -4,8 +4,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { LogOut, Wallet } from "lucide-react";
+import { LogOut, RefreshCw, Wallet } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 import { type WalletType, useICPWallet } from "../hooks/useICPWallet";
 import { usePremium } from "../hooks/usePremium";
 
@@ -84,11 +85,17 @@ const WALLET_OPTIONS: {
 
 export function Header({ onUnlockPro }: Props) {
   const { isPro, daysRemaining } = usePremium();
-  const { walletState, connectWallet, connectManualPrincipal, disconnect } =
-    useICPWallet();
+  const {
+    walletState,
+    connectWallet,
+    connectManualPrincipal,
+    forceLoginCheck,
+    disconnect,
+  } = useICPWallet();
   const [showWalletModal, setShowWalletModal] = useState(false);
   const [manualPrincipal, setManualPrincipal] = useState("");
   const [showManualEntry, setShowManualEntry] = useState(false);
+  const [forceCheckLoading, setForceCheckLoading] = useState(false);
 
   const handleConnect = async (type: WalletType) => {
     setShowWalletModal(false);
@@ -101,6 +108,24 @@ export function Header({ onUnlockPro }: Props) {
       setManualPrincipal("");
       setShowManualEntry(false);
       setShowWalletModal(false);
+    }
+  };
+
+  const handleForceLogin = async () => {
+    setForceCheckLoading(true);
+    const success = await forceLoginCheck();
+    setForceCheckLoading(false);
+    if (success) {
+      setShowWalletModal(false);
+      toast.success("Login restored", {
+        description: "Your wallet session has been recovered.",
+        duration: 4000,
+      });
+    } else {
+      toast.error("No active session found", {
+        description: "Please select a wallet above to start the login flow.",
+        duration: 4000,
+      });
     }
   };
 
@@ -215,37 +240,6 @@ export function Header({ onUnlockPro }: Props) {
           </div>
         </div>
 
-        {/* Popup-blocked banner */}
-        {walletState.popupBlocked && (
-          <div
-            data-ocid="header.popup_blocked_banner"
-            className="bg-[#FF9500]/10 border-t border-[#FF9500]/30 px-4 py-2"
-          >
-            <p className="text-[#FF9500] text-[11px] font-mono text-center">
-              Popup blocked?{" "}
-              <a
-                href={walletState.manualLoginUrl ?? "#"}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline font-bold hover:text-[#FFB800] transition-colors"
-              >
-                Click HERE to open manually
-              </a>
-              {" \u2014 or "}
-              <button
-                type="button"
-                className="underline font-bold hover:text-[#FFB800] transition-colors"
-                onClick={() => {
-                  setShowManualEntry(true);
-                  setShowWalletModal(true);
-                }}
-              >
-                enter Principal ID manually
-              </button>
-            </p>
-          </div>
-        )}
-
         {walletState.error &&
           !walletState.connected &&
           !walletState.popupBlocked && (
@@ -293,7 +287,7 @@ export function Header({ onUnlockPro }: Props) {
                   Enter your Principal ID manually:
                 </p>
                 <p className="text-gray-600 text-[10px] font-mono mb-3">
-                  For admin or pro users who cannot use a popup flow.
+                  For admin or pro users who cannot use the redirect flow.
                 </p>
                 <input
                   data-ocid="wallet_modal.manual_principal_input"
@@ -352,12 +346,38 @@ export function Header({ onUnlockPro }: Props) {
                   ))}
                 </div>
 
+                {/* Force Login — backup for when automatic return doesn't trigger */}
+                <div className="mt-3 rounded-xl border border-[#D4AF37]/20 bg-[#D4AF37]/5 px-3 py-2.5">
+                  <p className="text-[#D4AF37] text-[10px] font-mono mb-2">
+                    Already logged in on the provider site but not redirected
+                    back?
+                  </p>
+                  <button
+                    type="button"
+                    data-ocid="wallet_modal.force_login_button"
+                    onClick={() => void handleForceLogin()}
+                    disabled={forceCheckLoading}
+                    className="w-full flex items-center justify-center gap-2 py-2 rounded-lg border border-[#D4AF37]/40 text-[#D4AF37] font-mono font-bold text-xs hover:bg-[#D4AF37]/10 transition-all disabled:opacity-60"
+                  >
+                    {forceCheckLoading ? (
+                      <>
+                        <span className="w-3 h-3 rounded-full border-2 border-[#D4AF37] border-t-transparent animate-spin" />
+                        Checking session...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw size={11} />
+                        Force Login (Recover Session)
+                      </>
+                    )}
+                  </button>
+                </div>
+
                 {/* Trouble connecting hint */}
-                <div className="mt-4 rounded-xl border border-[#FF9500]/20 bg-[#FF9500]/5 px-3 py-2.5">
+                <div className="mt-3 rounded-xl border border-[#FF9500]/20 bg-[#FF9500]/5 px-3 py-2.5">
                   <p className="text-[#FF9500] text-[11px] font-mono">
-                    \uD83D\uDCA1 <strong>Trouble connecting?</strong> Try NFID
-                    (Google Login) or disable popup blockers in your browser
-                    settings.
+                    <strong>Trouble connecting?</strong> Try NFID (Google Login)
+                    or disable popup blockers in your browser settings.
                   </p>
                 </div>
 
