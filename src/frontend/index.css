@@ -1,0 +1,200 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@font-face {
+  font-family: 'Outfit';
+  src: url('/assets/fonts/Outfit[wght].woff2') format('woff2 supports variations'),
+       url('/assets/fonts/Outfit[wght].woff2') format('woff2');
+  font-weight: 100 900;
+  font-display: swap;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Sora';
+  src: url('/assets/fonts/Sora[wght].woff2') format('woff2 supports variations'),
+       url('/assets/fonts/Sora[wght].woff2') format('woff2');
+  font-weight: 100 800;
+  font-display: swap;
+  font-style: normal;
+}
+
+@layer base {
+  :root {
+    --radius: 1rem;
+
+    /* Tokensight AI Dark Theme — always dark */
+    --background: 0.068 0.021 264;
+    --foreground: 0.96 0.01 240;
+    --card: 0.1 0.018 264;
+    --card-foreground: 0.96 0.01 240;
+    --popover: 0.12 0.02 264;
+    --popover-foreground: 0.96 0.01 240;
+    --primary: 0.82 0.175 207;
+    --primary-foreground: 0.068 0.021 264;
+    --secondary: 0.546 0.243 293;
+    --secondary-foreground: 0.96 0.01 240;
+    --muted: 0.15 0.02 264;
+    --muted-foreground: 0.55 0.02 240;
+    --accent: 0.546 0.243 293;
+    --accent-foreground: 0.96 0.01 240;
+    --destructive: 0.62 0.22 25;
+    --destructive-foreground: 0.96 0.01 240;
+    --border: 0.96 0.01 240 / 10%;
+    --input: 0.96 0.01 240 / 12%;
+    --ring: 0.82 0.175 207;
+    --chart-1: 0.82 0.175 207;
+    --chart-2: 0.546 0.243 293;
+    --chart-3: 0.72 0.2 142;
+    --chart-4: 0.8 0.18 60;
+    --chart-5: 0.65 0.22 25;
+    --sidebar: 0.09 0.02 264;
+    --sidebar-foreground: 0.96 0.01 240;
+    --sidebar-primary: 0.82 0.175 207;
+    --sidebar-primary-foreground: 0.068 0.021 264;
+    --sidebar-accent: 0.15 0.02 264;
+    --sidebar-accent-foreground: 0.96 0.01 240;
+    --sidebar-border: 0.96 0.01 240 / 10%;
+    --sidebar-ring: 0.82 0.175 207;
+
+    /* Brand colors as CSS vars for direct use */
+    --neon-blue: #00D4FF;
+    --neon-purple: #8B5CF6;
+    --neon-green: #00FF94;
+    --neon-yellow: #FFD700;
+    --bg-base: #0A0A1A;
+  }
+
+  /* Override for dark — same values since app is always dark */
+  .dark {
+    --background: 0.068 0.021 264;
+    --foreground: 0.96 0.01 240;
+    --card: 0.1 0.018 264;
+    --card-foreground: 0.96 0.01 240;
+    --popover: 0.12 0.02 264;
+    --popover-foreground: 0.96 0.01 240;
+    --primary: 0.82 0.175 207;
+    --primary-foreground: 0.068 0.021 264;
+    --secondary: 0.546 0.243 293;
+    --secondary-foreground: 0.96 0.01 240;
+    --muted: 0.15 0.02 264;
+    --muted-foreground: 0.55 0.02 240;
+    --accent: 0.546 0.243 293;
+    --accent-foreground: 0.96 0.01 240;
+    --destructive: 0.62 0.22 25;
+    --destructive-foreground: 0.96 0.01 240;
+    --border: 0.96 0.01 240 / 10%;
+    --input: 0.96 0.01 240 / 12%;
+    --ring: 0.82 0.175 207;
+    --chart-1: 0.82 0.175 207;
+    --chart-2: 0.546 0.243 293;
+    --chart-3: 0.72 0.2 142;
+    --chart-4: 0.8 0.18 60;
+    --chart-5: 0.65 0.22 25;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    color-scheme: dark;
+    background-color: #0A0A1A;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Outfit', 'Sora', ui-sans-serif, system-ui, sans-serif;
+    background-color: #0A0A1A;
+    min-height: 100vh;
+  }
+}
+
+@layer utilities {
+  .glass {
+    background: rgba(255, 255, 255, 0.04);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 1rem;
+  }
+
+  .glass-strong {
+    background: rgba(255, 255, 255, 0.07);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 1rem;
+  }
+
+  .neon-blue-glow {
+    text-shadow: 0 0 10px #00D4FF, 0 0 30px #00D4FF80;
+  }
+
+  .neon-purple-glow {
+    text-shadow: 0 0 10px #8B5CF6, 0 0 30px #8B5CF680;
+  }
+
+  .neon-green-glow {
+    text-shadow: 0 0 8px #00FF94, 0 0 20px #00FF9480;
+  }
+
+  .box-neon-blue {
+    box-shadow: 0 0 15px #00D4FF30, 0 0 30px #00D4FF15, inset 0 0 15px #00D4FF08;
+  }
+
+  .box-neon-purple {
+    box-shadow: 0 0 15px #8B5CF630, 0 0 30px #8B5CF615, inset 0 0 15px #8B5CF608;
+  }
+
+  .box-neon-green {
+    box-shadow: 0 0 12px #00FF9430, 0 0 25px #00FF9415;
+  }
+
+  .border-neon-blue {
+    border-color: rgba(0, 212, 255, 0.4);
+  }
+
+  .border-neon-purple {
+    border-color: rgba(139, 92, 246, 0.4);
+  }
+
+  .gradient-neon {
+    background: linear-gradient(135deg, #00D4FF20 0%, #8B5CF620 100%);
+  }
+
+  .gradient-alpha {
+    background: linear-gradient(135deg, rgba(0, 212, 255, 0.12) 0%, rgba(139, 92, 246, 0.12) 100%);
+  }
+
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@keyframes neonPulse {
+  0%, 100% {
+    box-shadow:
+      0 0 15px rgba(255, 215, 0, 0.4),
+      0 0 30px rgba(255, 215, 0, 0.2),
+      0 0 60px rgba(0, 212, 255, 0.15),
+      inset 0 0 20px rgba(255, 215, 0, 0.05);
+  }
+  50% {
+    box-shadow:
+      0 0 25px rgba(255, 215, 0, 0.6),
+      0 0 50px rgba(255, 215, 0, 0.3),
+      0 0 80px rgba(0, 212, 255, 0.25),
+      inset 0 0 30px rgba(255, 215, 0, 0.08);
+  }
+}
+
+.alpha-card-glow {
+  animation: neonPulse 2s ease-in-out infinite;
+}
