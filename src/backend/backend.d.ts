@@ -8,6 +8,8 @@ export interface _SERVICE {
   subscribePremium: ActorMethod<[], string>;
   isPremium: ActorMethod<[], boolean>;
   getSubscriptionExpiry: ActorMethod<[], [bigint] | []>;
+  submitTxidForVerification: ActorMethod<[string], string>;
+  checkTxidVerified: ActorMethod<[string], boolean>;
   refreshTokenCache: ActorMethod<[], undefined>;
   getTokenCache: ActorMethod<[], string>;
   getLastRefresh: ActorMethod<[], bigint>;

@@ -1,5 +1,5 @@
 import { useLocalWatchlist } from "@/hooks/useLocalWatchlist";
-import type { TokenData } from "@/hooks/useTokenData";
+import type { PriceFlash, TokenData } from "@/hooks/useTokenData";
 import { cn } from "@/lib/utils";
 import { Star, TrendingDown, TrendingUp } from "lucide-react";
 import { motion } from "motion/react";
@@ -16,12 +16,16 @@ interface TokenCardProps {
   token: TokenData;
   index: number;
   showWatchlist?: boolean;
+  onOpenDetail?: (token: TokenData) => void;
+  flash?: PriceFlash;
 }
 
 export function TokenCard({
   token,
   index,
   showWatchlist = true,
+  onOpenDetail,
+  flash,
 }: TokenCardProps) {
   const { isWatched, addToWatchlist, removeFromWatchlist } =
     useLocalWatchlist();
@@ -30,7 +34,8 @@ export function TokenCard({
   const isPositive = token.price_change_percentage_24h >= 0;
   const predictionIsUp = token.prediction24h >= token.current_price;
 
-  const toggleWatchlist = () => {
+  const toggleWatchlist = (e: React.MouseEvent) => {
+    e.stopPropagation();
     if (watched) {
       removeFromWatchlist(token.symbol);
     } else {
@@ -38,28 +43,53 @@ export function TokenCard({
     }
   };
 
+  const flashBorder =
+    flash === "up"
+      ? "rgba(0,255,148,0.6)"
+      : flash === "down"
+        ? "rgba(255,68,68,0.6)"
+        : undefined;
+
   return (
     <motion.div
       data-ocid={`token.item.${index}`}
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay: Math.min(index * 0.03, 0.6) }}
-      className="glass p-4 flex flex-col gap-3 hover:border-white/20 transition-all duration-300 group relative"
+      onClick={() => onOpenDetail?.(token)}
+      className={cn(
+        "glass p-4 flex flex-col gap-3 transition-all duration-300 group relative",
+        onOpenDetail && "cursor-pointer hover:scale-[1.01]",
+        flash && "scale-[1.005]",
+      )}
+      style={
+        flashBorder
+          ? { borderColor: flashBorder, boxShadow: `0 0 12px ${flashBorder}` }
+          : undefined
+      }
     >
       {/* Header row */}
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-2">
-          <div
-            className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
-            style={{
-              background:
-                "linear-gradient(135deg, rgba(0,212,255,0.2), rgba(139,92,246,0.2))",
-              border: "1px solid rgba(0,212,255,0.3)",
-              color: "#00D4FF",
-            }}
-          >
-            {token.symbol.slice(0, 2)}
-          </div>
+          {token.image ? (
+            <img
+              src={token.image}
+              alt={token.symbol}
+              className="w-9 h-9 rounded-full flex-shrink-0"
+            />
+          ) : (
+            <div
+              className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
+              style={{
+                background:
+                  "linear-gradient(135deg, rgba(0,212,255,0.2), rgba(139,92,246,0.2))",
+                border: "1px solid rgba(0,212,255,0.3)",
+                color: "#00D4FF",
+              }}
+            >
+              {token.symbol.slice(0, 2)}
+            </div>
+          )}
           <div>
             <div className="font-bold text-white text-sm">{token.symbol}</div>
             <div className="text-xs text-white/40 truncate max-w-[80px]">
@@ -91,9 +121,25 @@ export function TokenCard({
         )}
       </div>
 
-      {/* Price */}
+      {/* Price with flash */}
       <div>
-        <div className="text-xl font-bold text-white">
+        <div
+          className="text-xl font-bold transition-colors duration-300"
+          style={{
+            color:
+              flash === "up"
+                ? "#00FF94"
+                : flash === "down"
+                  ? "#FF4444"
+                  : "#ffffff",
+            textShadow:
+              flash === "up"
+                ? "0 0 10px rgba(0,255,148,0.8)"
+                : flash === "down"
+                  ? "0 0 10px rgba(255,68,68,0.8)"
+                  : "none",
+          }}
+        >
           {formatPrice(token.current_price)}
         </div>
         <div

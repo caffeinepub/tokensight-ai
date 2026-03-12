@@ -1,5 +1,6 @@
+import { useLocalWatchlist } from "@/hooks/useLocalWatchlist";
 import type { TokenData } from "@/hooks/useTokenData";
-import { TrendingDown, TrendingUp, Zap } from "lucide-react";
+import { Star, TrendingDown, TrendingUp, Zap } from "lucide-react";
 import { motion } from "motion/react";
 
 function formatPrice(price: number): string {
@@ -12,9 +13,13 @@ function formatPrice(price: number): string {
 
 interface AlphaSectionProps {
   tokens: TokenData[];
+  onOpenDetail?: (token: TokenData) => void;
 }
 
-export function AlphaSection({ tokens }: AlphaSectionProps) {
+export function AlphaSection({ tokens, onOpenDetail }: AlphaSectionProps) {
+  const { isWatched, addToWatchlist, removeFromWatchlist } =
+    useLocalWatchlist();
+
   return (
     <motion.section
       initial={{ opacity: 0, y: -10 }}
@@ -39,6 +44,17 @@ export function AlphaSection({ tokens }: AlphaSectionProps) {
       <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-hide">
         {tokens.map((token, i) => {
           const isPositive = token.price_change_percentage_24h >= 0;
+          const watched = isWatched(token.symbol);
+
+          const toggleWatch = (e: React.MouseEvent) => {
+            e.stopPropagation();
+            if (watched) {
+              removeFromWatchlist(token.symbol);
+            } else {
+              addToWatchlist(token.symbol);
+            }
+          };
+
           return (
             <motion.div
               key={token.id}
@@ -46,11 +62,13 @@ export function AlphaSection({ tokens }: AlphaSectionProps) {
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ delay: i * 0.1, duration: 0.4 }}
-              className="flex-shrink-0 w-48 p-4 rounded-xl relative overflow-hidden alpha-card-glow"
+              onClick={() => onOpenDetail?.(token)}
+              className="flex-shrink-0 w-48 p-4 rounded-xl relative overflow-hidden alpha-card-glow group"
               style={{
                 background:
                   "linear-gradient(135deg, rgba(0,212,255,0.1), rgba(255,215,0,0.1))",
                 border: "1px solid rgba(255,215,0,0.5)",
+                cursor: onOpenDetail ? "pointer" : "default",
               }}
             >
               {/* Rank badge */}
@@ -61,8 +79,32 @@ export function AlphaSection({ tokens }: AlphaSectionProps) {
                 #{i + 1}
               </div>
 
+              {/* Watchlist star */}
+              <button
+                type="button"
+                data-ocid={`alpha.toggle.${i + 1}`}
+                onClick={toggleWatch}
+                title={watched ? "Remove from watchlist" : "Add to watchlist"}
+                className="absolute top-2 left-2 p-1 rounded-md transition-all duration-200 opacity-0 group-hover:opacity-100"
+                style={{
+                  opacity: watched ? 1 : undefined,
+                  background: watched
+                    ? "rgba(255,215,0,0.15)"
+                    : "rgba(0,0,0,0.3)",
+                }}
+              >
+                <Star
+                  className="h-3.5 w-3.5"
+                  style={{
+                    fill: watched ? "#FFD700" : "transparent",
+                    color: watched ? "#FFD700" : "rgba(255,255,255,0.5)",
+                    stroke: watched ? "#FFD700" : "rgba(255,255,255,0.5)",
+                  }}
+                />
+              </button>
+
               {/* Token info */}
-              <div className="mb-3">
+              <div className="mb-3 mt-1">
                 <div className="font-bold text-lg text-white">
                   {token.symbol}
                 </div>

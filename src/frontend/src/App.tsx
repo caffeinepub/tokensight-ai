@@ -1,4 +1,6 @@
 import { Toaster } from "@/components/ui/sonner";
+import { usePremium } from "@/hooks/usePremium";
+import { useTokenData } from "@/hooks/useTokenData";
 import { cn } from "@/lib/utils";
 import { LayoutDashboard, Star, TrendingUp } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -6,6 +8,7 @@ import { useState } from "react";
 import { AccuracyTab } from "./components/AccuracyTab";
 import { DashboardTab } from "./components/DashboardTab";
 import { Header } from "./components/Header";
+import { UnlockProModal } from "./components/UnlockProModal";
 import { WatchlistTab } from "./components/WatchlistTab";
 
 type Tab = "dashboard" | "watchlist" | "accuracy";
@@ -18,6 +21,9 @@ const TABS: { id: Tab; label: string; icon: typeof LayoutDashboard }[] = [
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
+  const [unlockModalOpen, setUnlockModalOpen] = useState(false);
+  const { isPremium, unlockNow, unlockWithTxid } = usePremium();
+  const { icpPrice } = useTokenData();
 
   return (
     <div className="min-h-screen" style={{ background: "#0A0A1A" }}>
@@ -50,7 +56,10 @@ export default function App() {
       </div>
 
       {/* Header */}
-      <Header />
+      <Header
+        isPremium={isPremium}
+        onUnlockPro={() => setUnlockModalOpen(true)}
+      />
 
       {/* Tab navigation */}
       <nav
@@ -98,7 +107,15 @@ export default function App() {
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.25 }}
           >
-            {activeTab === "dashboard" && <DashboardTab />}
+            {activeTab === "dashboard" && (
+              <DashboardTab
+                isPremium={isPremium}
+                onUnlockPro={() => setUnlockModalOpen(true)}
+                unlockNow={unlockNow}
+                unlockWithTxid={unlockWithTxid}
+                icpPrice={icpPrice}
+              />
+            )}
             {activeTab === "watchlist" && <WatchlistTab />}
             {activeTab === "accuracy" && <AccuracyTab />}
           </motion.div>
@@ -126,6 +143,15 @@ export default function App() {
           Powered by the Internet Computer Protocol
         </p>
       </footer>
+
+      {/* Global Unlock Pro Modal */}
+      <UnlockProModal
+        open={unlockModalOpen}
+        onClose={() => setUnlockModalOpen(false)}
+        onSuccess={() => setUnlockModalOpen(false)}
+        icpPrice={icpPrice}
+        unlockNow={unlockNow}
+      />
 
       <Toaster
         theme="dark"

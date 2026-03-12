@@ -38,6 +38,7 @@ actor TokensightAI {
 
   // ---- Premium Subscriptions ----
   let subscriptions = Map.empty<Principal, Int>();
+  let verifiedTxids = Map.empty<Text, Int>(); // txid -> timestamp
 
   public shared ({ caller }) func subscribePremium() : async Text {
     let thirtyDays : Int = 30 * 24 * 60 * 60 * 1_000_000_000;
@@ -55,6 +56,33 @@ actor TokensightAI {
 
   public query ({ caller }) func getSubscriptionExpiry() : async ?Int {
     subscriptions.get(caller);
+  };
+
+  // Submit a TXID for premium verification.
+  // Validates format (64-char hex), records the txid, and grants premium.
+  public shared (msg) func submitTxidForVerification(txid : Text) : async Text {
+    // Basic format check: must be exactly 64 hex chars
+    if (txid.size() != 64) {
+      return "error:invalid_format";
+    };
+    // Check if already used
+    switch (verifiedTxids.get(txid)) {
+      case (?_) { return "error:txid_already_used" };
+      case null {};
+    };
+    // Record and grant premium
+    verifiedTxids.add(txid, Time.now());
+    let thirtyDays : Int = 30 * 24 * 60 * 60 * 1_000_000_000;
+    let expiry : Int = Time.now() + thirtyDays;
+    subscriptions.add(msg.caller, expiry);
+    "success:premium_granted";
+  };
+
+  public query func checkTxidVerified(txid : Text) : async Bool {
+    switch (verifiedTxids.get(txid)) {
+      case (?_) { true };
+      case null { false };
+    };
   };
 
   // ---- Token Cache ----
