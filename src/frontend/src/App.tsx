@@ -1,168 +1,221 @@
 import { Toaster } from "@/components/ui/sonner";
-import { usePremium } from "@/hooks/usePremium";
-import { useTokenData } from "@/hooks/useTokenData";
-import { cn } from "@/lib/utils";
-import { LayoutDashboard, Star, TrendingUp } from "lucide-react";
-import { AnimatePresence, motion } from "motion/react";
-import { useState } from "react";
-import { AccuracyTab } from "./components/AccuracyTab";
+import { BarChart2, History, LayoutDashboard, Radio } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
+import { AdminPanel } from "./components/AdminPanel";
+import { AlphaSection } from "./components/AlphaSection";
 import { DashboardTab } from "./components/DashboardTab";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Header } from "./components/Header";
+import { SignalHistoryTab } from "./components/SignalHistoryTab";
+import { SocialSection } from "./components/SocialSection";
+import { SuccessBadge } from "./components/SuccessBadge";
 import { UnlockProModal } from "./components/UnlockProModal";
-import { WatchlistTab } from "./components/WatchlistTab";
+import { WhaleTicker } from "./components/WhaleTicker";
+import { useICPWallet } from "./hooks/useICPWallet";
+import { usePremium } from "./hooks/usePremium";
+import { useSignalHistory } from "./hooks/useSignalHistory";
+import { useTokenData } from "./hooks/useTokenData";
 
-type Tab = "dashboard" | "watchlist" | "accuracy";
+export const ADMIN_PRINCIPAL =
+  "sg5zb-fsg2l-xim4d-64w2p-lsqq3-6awgd-r7pzw-lekky-wzoyu-367qv-vae";
 
-const TABS: { id: Tab; label: string; icon: typeof LayoutDashboard }[] = [
+type TabId = "dashboard" | "signals" | "social" | "history";
+
+const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { id: "watchlist", label: "Watchlist", icon: Star },
-  { id: "accuracy", label: "Accuracy", icon: TrendingUp },
+  { id: "signals", label: "Signals", icon: BarChart2 },
+  { id: "social", label: "Social", icon: Radio },
+  { id: "history", label: "History", icon: History },
 ];
 
+const IS_ADMIN =
+  window.location.pathname === "/admin" ||
+  window.location.pathname === "/tokensight-admin";
+
 export default function App() {
-  const [activeTab, setActiveTab] = useState<Tab>("dashboard");
-  const [unlockModalOpen, setUnlockModalOpen] = useState(false);
-  const { isPremium, unlockNow, unlockWithTxid } = usePremium();
-  const { icpPrice } = useTokenData();
+  const [activeTab, setActiveTab] = useState<TabId>("dashboard");
+  const [showModal, setShowModal] = useState(false);
+  const { isPro, isAdminAccess, unlockPro, grantAdminAccess } = usePremium();
+  const { prices, signals, connected, scanningForGoldenSniper } =
+    useTokenData();
+  const { history, recordSignals, manualClose, updateSignalPrices } =
+    useSignalHistory();
+  const { walletState } = useICPWallet();
+  const recordedRef = useRef(false);
+  const adminGrantedRef = useRef(false);
+
+  useEffect(() => {
+    if (signals.length > 0 && !recordedRef.current) {
+      recordedRef.current = true;
+      recordSignals(signals);
+    }
+  }, [signals, recordSignals]);
+
+  // Wire live prices to signal history for Golden Sniper monitoring
+  useEffect(() => {
+    if (Object.keys(prices).length > 0) {
+      const priceMap: Record<string, number> = {};
+      for (const [sym, data] of Object.entries(prices)) {
+        priceMap[sym] = data.price;
+      }
+      updateSignalPrices(priceMap);
+    }
+  }, [prices, updateSignalPrices]);
+
+  // Super Admin Bypass: grant pro access when admin principal connects
+  useEffect(() => {
+    if (
+      walletState.principal &&
+      walletState.principal === ADMIN_PRINCIPAL &&
+      !adminGrantedRef.current
+    ) {
+      adminGrantedRef.current = true;
+      grantAdminAccess();
+      toast.success("⚡ Admin Access Granted", {
+        description: "Full Pro access enabled for admin principal.",
+        duration: 5000,
+      });
+    }
+  }, [walletState.principal, grantAdminAccess]);
+
+  useEffect(() => {
+    try {
+      const visitKey = "ts_visit_count";
+      const visits =
+        Number.parseInt(localStorage.getItem(visitKey) ?? "0", 10) + 1;
+      localStorage.setItem(visitKey, String(visits));
+      localStorage.setItem("ts_last_visit", new Date().toISOString());
+      const fpKey = "ts_user_fp";
+      if (!localStorage.getItem(fpKey)) {
+        const fp = Math.random().toString(36).slice(2);
+        localStorage.setItem(fpKey, fp);
+        const uniqueCount =
+          Number.parseInt(localStorage.getItem("ts_unique_users") ?? "0", 10) +
+          1;
+        localStorage.setItem("ts_unique_users", String(uniqueCount));
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    try {
+      if (isPro) localStorage.setItem("ts_pro_user_count", "1");
+    } catch {}
+  }, [isPro]);
+
+  const activeSignals = history.filter((e) => e.outcome === "active");
+
+  if (IS_ADMIN)
+    return (
+      <AdminPanel
+        connectedPrincipal={walletState.principal}
+        activeSignals={activeSignals}
+        onManualClose={manualClose}
+      />
+    );
+
+  const proUserCount = isPro ? 1 : 0;
 
   return (
-    <div className="min-h-screen" style={{ background: "#0A0A1A" }}>
-      {/* Background grid pattern */}
-      <div
-        className="fixed inset-0 pointer-events-none"
-        style={{
-          backgroundImage: `
-            linear-gradient(rgba(0,212,255,0.03) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(0,212,255,0.03) 1px, transparent 1px)
-          `,
-          backgroundSize: "60px 60px",
-        }}
-      />
+    <ErrorBoundary>
+      <div className="min-h-screen bg-[#080B14] text-white">
+        <Header onUnlockPro={() => setShowModal(true)} />
+        <WhaleTicker />
 
-      {/* Ambient glow effects */}
-      <div className="fixed inset-0 pointer-events-none overflow-hidden">
-        <div
-          className="absolute -top-40 -left-40 w-96 h-96 rounded-full opacity-10"
-          style={{
-            background: "radial-gradient(circle, #00D4FF 0%, transparent 70%)",
-          }}
-        />
-        <div
-          className="absolute -bottom-40 -right-40 w-96 h-96 rounded-full opacity-10"
-          style={{
-            background: "radial-gradient(circle, #8B5CF6 0%, transparent 70%)",
-          }}
-        />
-      </div>
+        {isAdminAccess && (
+          <div
+            data-ocid="app.admin_access_banner"
+            className="bg-[#D4AF37]/10 border-b border-[#D4AF37]/30 py-1.5 px-4 text-center"
+          >
+            <span className="text-[#FFD700] font-mono text-xs font-bold">
+              ⚡ ADMIN ACCESS ACTIVE — Full Pro enabled for principal{" "}
+              <span className="text-[#D4AF37]/70">
+                {ADMIN_PRINCIPAL.slice(0, 20)}…
+              </span>
+            </span>
+          </div>
+        )}
 
-      {/* Header */}
-      <Header
-        isPremium={isPremium}
-        onUnlockPro={() => setUnlockModalOpen(true)}
-      />
-
-      {/* Tab navigation */}
-      <nav
-        className="sticky top-[72px] z-40 border-b border-white/8"
-        style={{
-          background: "rgba(10,10,26,0.9)",
-          backdropFilter: "blur(16px)",
-        }}
-      >
-        <div className="max-w-7xl mx-auto px-4">
-          <div className="flex gap-1">
-            {TABS.map(({ id, label, icon: Icon }) => (
-              <button
-                key={id}
-                type="button"
-                data-ocid={`nav.${id}.tab`}
-                onClick={() => setActiveTab(id)}
-                className={cn(
-                  "flex items-center gap-2 px-3 sm:px-4 py-3 text-sm font-medium transition-all duration-200 border-b-2 -mb-px",
-                  activeTab === id
-                    ? "border-neon-blue text-white"
-                    : "border-transparent text-white/40 hover:text-white/70",
-                )}
-                style={
-                  activeTab === id
-                    ? { borderColor: "#00D4FF", color: "#fff" }
-                    : {}
-                }
-              >
-                <Icon className="h-4 w-4" />
-                <span className="hidden sm:inline">{label}</span>
-              </button>
-            ))}
+        <div className="sticky top-14 z-30 bg-[#080B14]/95 backdrop-blur-md border-b border-[#1C2333]">
+          <div className="max-w-7xl mx-auto px-3 md:px-6">
+            <div className="flex overflow-x-auto scrollbar-hide">
+              {TABS.map(({ id, label, icon: Icon }) => {
+                const isActive = activeTab === id;
+                return (
+                  <button
+                    type="button"
+                    key={id}
+                    data-ocid={`nav.${id}.tab`}
+                    onClick={() => setActiveTab(id)}
+                    className="flex items-center gap-1.5 px-4 py-3 text-xs font-mono font-semibold whitespace-nowrap border-b-2 transition-all"
+                    style={{
+                      borderColor: isActive ? "#D4AF37" : "transparent",
+                      color: isActive ? "#D4AF37" : "#6B7280",
+                    }}
+                  >
+                    <Icon size={13} />
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
-      </nav>
 
-      {/* Content */}
-      <main className="max-w-7xl mx-auto px-3 py-4 sm:px-4 sm:py-8 relative z-10">
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={activeTab}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.25 }}
-          >
-            {activeTab === "dashboard" && (
-              <DashboardTab
-                isPremium={isPremium}
-                onUnlockPro={() => setUnlockModalOpen(true)}
-                unlockNow={unlockNow}
-                unlockWithTxid={unlockWithTxid}
-                icpPrice={icpPrice}
-              />
-            )}
-            {activeTab === "watchlist" && <WatchlistTab />}
-            {activeTab === "accuracy" && <AccuracyTab />}
-          </motion.div>
-        </AnimatePresence>
-      </main>
+        <main className="max-w-7xl mx-auto px-3 md:px-6 py-5">
+          {activeTab === "dashboard" && (
+            <DashboardTab
+              prices={prices}
+              connected={connected}
+              history={history}
+              proUserCount={proUserCount}
+              signalCount={signals.length}
+            />
+          )}
+          {activeTab === "signals" && (
+            <AlphaSection
+              signals={signals}
+              isPro={isPro}
+              onUnlock={() => setShowModal(true)}
+              scanningForGoldenSniper={scanningForGoldenSniper}
+            />
+          )}
+          {activeTab === "social" && (
+            <SocialSection isPro={isPro} onUnlock={() => setShowModal(true)} />
+          )}
+          {activeTab === "history" && (
+            <SignalHistoryTab
+              isPro={isPro}
+              onUnlock={() => setShowModal(true)}
+              history={history}
+            />
+          )}
+        </main>
 
-      {/* Footer */}
-      <footer
-        className="border-t border-white/8 mt-16 py-8 text-center"
-        style={{ background: "rgba(10,10,26,0.8)" }}
-      >
-        <p className="text-xs text-white/30">
-          © {new Date().getFullYear()}. Built with ❤️ using{" "}
-          <a
-            href={`https://caffeine.ai?utm_source=caffeine-footer&utm_medium=referral&utm_content=${encodeURIComponent(typeof window !== "undefined" ? window.location.hostname : "")}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hover:text-white/60 transition-colors"
-            style={{ color: "#00D4FF" }}
-          >
-            caffeine.ai
-          </a>
-        </p>
-        <p className="text-xs text-white/20 mt-1">
-          Powered by the Internet Computer Protocol
-        </p>
-      </footer>
+        <footer className="border-t border-[#1C2333] mt-8 py-5 text-center">
+          <p className="text-gray-600 text-xs font-mono">
+            © {new Date().getFullYear()} TokenSight AI &mdash; Built with ❤️
+            using{" "}
+            <a
+              href={`https://caffeine.ai?utm_source=caffeine-footer&utm_medium=referral&utm_content=${encodeURIComponent(window.location.hostname)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[#D4AF37] hover:text-[#FFD700] transition-colors"
+            >
+              caffeine.ai
+            </a>
+          </p>
+        </footer>
 
-      {/* Global Unlock Pro Modal */}
-      <UnlockProModal
-        open={unlockModalOpen}
-        onClose={() => setUnlockModalOpen(false)}
-        onSuccess={() => setUnlockModalOpen(false)}
-        icpPrice={icpPrice}
-        unlockNow={unlockNow}
-      />
-
-      <Toaster
-        theme="dark"
-        toastOptions={{
-          style: {
-            background: "rgba(10,10,26,0.95)",
-            border: "1px solid rgba(0,212,255,0.2)",
-            color: "#fff",
-          },
-        }}
-      />
-    </div>
+        <UnlockProModal
+          open={showModal}
+          onClose={() => setShowModal(false)}
+          onUnlock={unlockPro}
+        />
+        <SuccessBadge />
+        <Toaster />
+      </div>
+    </ErrorBoundary>
   );
 }

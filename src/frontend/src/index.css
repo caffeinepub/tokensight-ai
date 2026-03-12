@@ -1,0 +1,120 @@
+@import url("https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@300;400;500;600;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Institutional Dark Mode — AI Alpha Terminal */
+    --background: 0.1 0.015 240;
+    --foreground: 0.95 0.005 240;
+    --card: 0.13 0.015 240;
+    --card-foreground: 0.95 0.005 240;
+    --popover: 0.13 0.015 240;
+    --popover-foreground: 0.95 0.005 240;
+    --primary: 0.74 0.12 85;
+    --primary-foreground: 0.1 0.015 240;
+    --secondary: 0.18 0.02 240;
+    --secondary-foreground: 0.85 0.005 240;
+    --muted: 0.18 0.02 240;
+    --muted-foreground: 0.55 0.01 240;
+    --accent: 0.74 0.12 85;
+    --accent-foreground: 0.1 0.015 240;
+    --destructive: 0.6 0.22 15;
+    --destructive-foreground: 0.98 0.005 0;
+    --border: 0.2 0.02 240;
+    --input: 0.2 0.02 240;
+    --ring: 0.74 0.12 85;
+    --radius: 0.75rem;
+    --chart-1: 0.74 0.12 85;
+    --chart-2: 0.79 0.15 210;
+    --chart-3: 0.88 0.21 160;
+    --chart-4: 0.6 0.22 15;
+    --chart-5: 0.65 0.2 290;
+    --sidebar: 0.1 0.015 240;
+    --sidebar-foreground: 0.95 0.005 240;
+    --sidebar-primary: 0.74 0.12 85;
+    --sidebar-primary-foreground: 0.1 0.015 240;
+    --sidebar-accent: 0.18 0.02 240;
+    --sidebar-accent-foreground: 0.85 0.005 240;
+    --sidebar-border: 0.2 0.02 240;
+    --sidebar-ring: 0.74 0.12 85;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: "Outfit", ui-sans-serif, system-ui, sans-serif;
+  }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: #080b14;
+}
+::-webkit-scrollbar-thumb {
+  background: #1c2333;
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #2a3550;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Whale ticker scroll animation */
+@keyframes whale-scroll {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+/* Neon glow utilities */
+.neon-gold {
+  box-shadow: 0 0 12px rgba(212, 175, 55, 0.3), 0 0 24px rgba(212, 175, 55, 0.1);
+}
+.neon-green {
+  box-shadow: 0 0 12px rgba(0, 255, 136, 0.3), 0 0 24px rgba(0, 255, 136, 0.1);
+}
+.neon-blue {
+  box-shadow: 0 0 12px rgba(0, 212, 255, 0.3), 0 0 24px rgba(0, 212, 255, 0.1);
+}
+
+/* Price flash animation */
+@keyframes flash-up {
+  0%,
+  100% {
+    color: inherit;
+  }
+  50% {
+    color: #00ff88;
+    text-shadow: 0 0 8px rgba(0, 255, 136, 0.6);
+  }
+}
+@keyframes flash-down {
+  0%,
+  100% {
+    color: inherit;
+  }
+  50% {
+    color: #ff3b5c;
+    text-shadow: 0 0 8px rgba(255, 59, 92, 0.6);
+  }
+}

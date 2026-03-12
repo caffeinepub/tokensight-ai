@@ -1,625 +1,431 @@
-import { Skeleton } from "@/components/ui/skeleton";
-import { useTokenData } from "@/hooks/useTokenData";
-import type { TokenData } from "@/hooks/useTokenData";
-import { Lock } from "lucide-react";
-import { motion } from "motion/react";
-import { useState } from "react";
-import { AlphaSection } from "./AlphaSection";
-import { TokenCard } from "./TokenCard";
-import { TokenDetailModal } from "./TokenDetailModal";
-import { UnlockProModal } from "./UnlockProModal";
+import { Activity, BarChart2, TrendingUp, Users } from "lucide-react";
+import { useEffect, useState } from "react";
+import type { HistoryEntry } from "../hooks/useSignalHistory";
+import type { TokenPrice } from "../hooks/useTokenData";
+import { COIN_NAMES, TRACKED_SYMBOLS } from "../hooks/useTokenData";
+import { SentimentGauge } from "./SentimentGauge";
 
-const SKELETON_KEYS = ["sk-a", "sk-b", "sk-c", "sk-d", "sk-e", "sk-f"];
-
-// Coins that are considered "free tier" for AI signals
-const FREE_TIER_IDS = ["bitcoin", "ethereum", "solana"];
-
-// Coins that are NOT in the top-cap group get "Hidden Gem" badge
-const LARGE_CAP_IDS = [
-  "bitcoin",
-  "ethereum",
-  "solana",
-  "binancecoin",
-  "ripple",
-  "cardano",
-  "dogecoin",
-];
-
-function formatPrice(price: number): string {
-  if (price < 0.0001) return `$${price.toFixed(8)}`;
-  if (price < 0.01) return `$${price.toFixed(6)}`;
-  if (price < 1) return `$${price.toFixed(4)}`;
-  if (price < 100) return `$${price.toFixed(2)}`;
-  return `$${price.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+interface Props {
+  prices: Record<string, TokenPrice>;
+  connected: boolean;
+  history: HistoryEntry[];
+  proUserCount: number;
+  signalCount?: number;
 }
 
-function HiddenGemBadge() {
-  return (
-    <span
-      className="hidden-gem-badge text-xs px-2 py-0.5 rounded-full font-bold"
-      style={{
-        background: "linear-gradient(135deg, #FFD700, #00FF88)",
-        color: "#000",
-        boxShadow: "0 0 12px rgba(255,215,0,0.6), 0 0 24px rgba(0,255,136,0.3)",
-        animation: "gemGlow 2s ease-in-out infinite alternate",
-      }}
-    >
-      💎 Hidden Gem
-    </span>
-  );
+const COIN_COLORS: Record<string, string> = {
+  BTCUSDT: "#F7931A",
+  ETHUSDT: "#627EEA",
+  ICPUSDT: "#29ABE2",
+  SOLUSDT: "#9945FF",
+  BNBUSDT: "#F3BA2F",
+  XRPUSDT: "#00AAE4",
+  ADAUSDT: "#0033AD",
+  DOGEUSDT: "#C2A633",
+  AVAXUSDT: "#E84142",
+  LINKUSDT: "#2A5ADA",
+  MATICUSDT: "#8247E5",
+  PEPEUSDT: "#00A550",
+  SHIBUSDT: "#FFA409",
+  ARBUSDT: "#12AAFF",
+  OPUSDT: "#FF0420",
+  DOTUSDT: "#E6007A",
+  UNIUSDT: "#FF007A",
+  ATOMUSDT: "#6F7390",
+  LTCUSDT: "#BFBBBB",
+  NEARUSDT: "#00C08B",
+};
+
+function fmt(n: number): string {
+  if (!n) return "—";
+  if (n < 0.0001) return n.toFixed(8);
+  if (n < 1) return n.toFixed(4);
+  if (n < 1000) return n.toFixed(2);
+  return n.toLocaleString("en-US", { maximumFractionDigits: 2 });
 }
 
-function SignalRow({
-  token,
-  index,
-  isPremium,
-  onUnlockPro,
-  onOpenDetail,
-}: {
-  token: TokenData;
-  index: number;
-  isPremium: boolean;
-  onUnlockPro: () => void;
-  onOpenDetail: (t: TokenData) => void;
-}) {
-  const isFreeTier = FREE_TIER_IDS.includes(token.id);
-  const isHiddenGem = !LARGE_CAP_IDS.includes(token.id);
-  const canView = isPremium || isFreeTier;
-
-  const signal =
-    token.sentiment.label === "Bullish"
-      ? "BUY"
-      : token.sentiment.label === "Bearish"
-        ? "SELL"
-        : "HOLD";
-  const signalColor =
-    signal === "BUY" ? "#00FF94" : signal === "SELL" ? "#FF4444" : "#FFD700";
-
-  const entry = token.current_price;
-  const tp1 = token.current_price * 1.02;
-  const tp2 = token.current_price * 1.05;
-  const tp3 = token.current_price * 1.1;
-  const sl = token.current_price * 0.98;
-
-  const seed = Math.abs(Math.sin(token.current_price * 137.5)) * 10000;
-  const confidence = Math.round(58 + Math.abs(Math.sin(seed + 4)) * 37);
-
-  if (!canView) {
-    return (
-      <div
-        data-ocid={`signals.item.${index}`}
-        className="relative rounded-xl overflow-hidden"
-        style={{
-          background: "rgba(255,255,255,0.02)",
-          border: "1px solid rgba(255,255,255,0.06)",
-        }}
-      >
-        {/* Blurred preview */}
-        <div className="p-4 flex items-center gap-3 blur-sm select-none">
-          <div
-            className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold"
-            style={{ background: "rgba(212,175,55,0.15)", color: "#d4af37" }}
-          >
-            {token.symbol.slice(0, 3)}
-          </div>
-          <div className="flex-1">
-            <p className="text-sm font-bold text-white">{token.name}</p>
-            <p className="text-xs" style={{ color: "rgba(255,255,255,0.4)" }}>
-              Entry • TP1 • TP2 • TP3 • SL
-            </p>
-          </div>
-          <div
-            className="px-3 py-1 rounded-lg text-xs font-bold"
-            style={{ background: `${signalColor}18`, color: signalColor }}
-          >
-            {signal}
-          </div>
-        </div>
-        {/* Lock overlay */}
-        <div
-          className="absolute inset-0 flex flex-col items-center justify-center gap-2"
-          style={{
-            background: "rgba(11,14,17,0.82)",
-            backdropFilter: "blur(2px)",
-          }}
-        >
-          <Lock
-            className="h-4 w-4"
-            style={{ color: "rgba(255,255,255,0.4)" }}
-          />
-          {isHiddenGem && <HiddenGemBadge />}
-          <button
-            type="button"
-            onClick={onUnlockPro}
-            className="text-xs font-semibold px-3 py-1.5 rounded-lg transition-all"
-            style={{
-              background: "rgba(240,185,11,0.15)",
-              color: "#F0B90B",
-              border: "1px solid rgba(240,185,11,0.3)",
-            }}
-          >
-            Unlock Pro
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <motion.div
-      data-ocid={`signals.item.${index}`}
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.04 }}
-      onClick={() => onOpenDetail(token)}
-      className="rounded-xl cursor-pointer transition-all duration-200 hover:scale-[1.01]"
-      style={{
-        background: "rgba(255,255,255,0.03)",
-        border: `1px solid ${isHiddenGem && isPremium ? "rgba(255,215,0,0.3)" : "rgba(255,255,255,0.07)"}`,
-        boxShadow:
-          isHiddenGem && isPremium ? "0 0 16px rgba(255,215,0,0.12)" : "none",
-      }}
-    >
-      <div className="p-4">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2.5">
-            {token.image ? (
-              <img
-                src={token.image}
-                alt={token.symbol}
-                className="w-7 h-7 rounded-full"
-              />
-            ) : (
-              <div
-                className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold"
-                style={{
-                  background: "rgba(212,175,55,0.15)",
-                  color: "#d4af37",
-                }}
-              >
-                {token.symbol.slice(0, 3)}
-              </div>
-            )}
-            <div>
-              <div className="flex items-center gap-1.5">
-                <p className="text-sm font-bold text-white">{token.symbol}</p>
-                {isHiddenGem && isPremium && <HiddenGemBadge />}
-              </div>
-              <p className="text-xs" style={{ color: "rgba(255,255,255,0.4)" }}>
-                {token.name}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {isPremium && (
-              <span
-                className="text-xs px-2 py-0.5 rounded-full font-mono"
-                style={{
-                  background: "rgba(255,255,255,0.06)",
-                  color: "rgba(255,255,255,0.45)",
-                }}
-              >
-                {confidence}% conf.
-              </span>
-            )}
-            <span
-              className="text-sm font-bold px-3 py-1 rounded-lg"
-              style={{
-                background: `${signalColor}18`,
-                color: signalColor,
-                border: `1px solid ${signalColor}30`,
-              }}
-            >
-              {signal}
-            </span>
-          </div>
-        </div>
-
-        <div
-          className={`grid gap-2 ${isPremium ? "grid-cols-5" : "grid-cols-3"}`}
-        >
-          <div
-            className="p-2 rounded-lg"
-            style={{
-              background: "rgba(0,212,255,0.07)",
-              border: "1px solid rgba(0,212,255,0.15)",
-            }}
-          >
-            <p
-              className="text-xs mb-0.5"
-              style={{ color: "rgba(255,255,255,0.4)" }}
-            >
-              Entry
-            </p>
-            <p
-              className="text-xs font-bold font-mono"
-              style={{ color: "#00D4FF" }}
-            >
-              {formatPrice(entry)}
-            </p>
-          </div>
-          <div
-            className="p-2 rounded-lg"
-            style={{
-              background: "rgba(0,255,148,0.07)",
-              border: "1px solid rgba(0,255,148,0.15)",
-            }}
-          >
-            <p
-              className="text-xs mb-0.5"
-              style={{ color: "rgba(255,255,255,0.4)" }}
-            >
-              TP1
-            </p>
-            <p
-              className="text-xs font-bold font-mono"
-              style={{ color: "#00FF94" }}
-            >
-              {formatPrice(tp1)}
-            </p>
-          </div>
-          <div
-            className="p-2 rounded-lg"
-            style={{
-              background: "rgba(255,68,68,0.07)",
-              border: "1px solid rgba(255,68,68,0.15)",
-            }}
-          >
-            <p
-              className="text-xs mb-0.5"
-              style={{ color: "rgba(255,255,255,0.4)" }}
-            >
-              SL
-            </p>
-            <p
-              className="text-xs font-bold font-mono"
-              style={{ color: "#FF4444" }}
-            >
-              {formatPrice(sl)}
-            </p>
-          </div>
-          {isPremium && (
-            <>
-              <div
-                className="p-2 rounded-lg"
-                style={{
-                  background: "rgba(0,255,148,0.05)",
-                  border: "1px solid rgba(0,255,148,0.1)",
-                }}
-              >
-                <p
-                  className="text-xs mb-0.5"
-                  style={{ color: "rgba(255,255,255,0.4)" }}
-                >
-                  TP2
-                </p>
-                <p
-                  className="text-xs font-bold font-mono"
-                  style={{ color: "#00FF94" }}
-                >
-                  {formatPrice(tp2)}
-                </p>
-              </div>
-              <div
-                className="p-2 rounded-lg"
-                style={{
-                  background: "rgba(0,255,148,0.04)",
-                  border: "1px solid rgba(0,255,148,0.08)",
-                }}
-              >
-                <p
-                  className="text-xs mb-0.5"
-                  style={{ color: "rgba(255,255,255,0.4)" }}
-                >
-                  TP3
-                </p>
-                <p
-                  className="text-xs font-bold font-mono"
-                  style={{ color: "#00FF94" }}
-                >
-                  {formatPrice(tp3)}
-                </p>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-    </motion.div>
-  );
+function fmtMC(n: number): string {
+  if (!n) return "—";
+  if (n >= 1e12) return `$${(n / 1e12).toFixed(2)}T`;
+  if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
+  if (n >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
+  return `$${n.toFixed(0)}`;
 }
 
-interface DashboardTabProps {
-  isPremium: boolean;
-  onUnlockPro: () => void;
-  unlockNow: () => void;
-  unlockWithTxid: (txid: string) => Promise<true | string>;
-  icpPrice: number;
+interface FearGreed {
+  value: number;
+  label: string;
 }
 
 export function DashboardTab({
-  isPremium,
-  unlockNow,
-  icpPrice,
-}: DashboardTabProps) {
-  const { tokens, alphaTokens, lowCapGems, isLoading, flashMap } =
-    useTokenData();
-  const [selectedToken, setSelectedToken] = useState<TokenData | null>(null);
-  const [detailOpen, setDetailOpen] = useState(false);
-  const [unlockModalOpen, setUnlockModalOpen] = useState(false);
+  prices,
+  connected,
+  history,
+  proUserCount,
+  signalCount = 0,
+}: Props) {
+  const [fearGreed, setFearGreed] = useState<FearGreed | null>(null);
+  const loadedCount = TRACKED_SYMBOLS.filter((s) => prices[s]).length;
 
-  const handleOpenDetail = (token: TokenData) => {
-    setSelectedToken(token);
-    setDetailOpen(true);
-  };
+  // Fetch live Fear & Greed index from Alternative.me
+  useEffect(() => {
+    const fetchFG = () => {
+      fetch("https://api.alternative.me/fng/?limit=1")
+        .then((r) => r.json())
+        .then((d) => {
+          const item = d?.data?.[0];
+          if (item)
+            setFearGreed({
+              value: Number(item.value),
+              label: item.value_classification,
+            });
+        })
+        .catch(() => {});
+    };
+    fetchFG();
+    const iv = setInterval(fetchFG, 300000); // refresh every 5 min
+    return () => clearInterval(iv);
+  }, []);
 
-  const handleCloseDetail = () => {
-    setDetailOpen(false);
-  };
+  // Compute real stats from history
+  const completedHistory = history.filter((e) => e.outcome !== "active");
+  const winCount = completedHistory.filter(
+    (e) => e.outcome === "tp1" || e.outcome === "tp2" || e.outcome === "tp3",
+  ).length;
+  const winRate =
+    completedHistory.length > 0
+      ? ((winCount / completedHistory.length) * 100).toFixed(1)
+      : null;
 
-  const handleUnlockFromDetail = () => {
-    setDetailOpen(false);
-    setUnlockModalOpen(true);
-  };
+  // Average R:R from history entries
+  const avgRR =
+    completedHistory.length > 0
+      ? (() => {
+          const nums = completedHistory.map((e) => {
+            const parts = e.rrRatio.split(":");
+            return parts[1] ? Number.parseFloat(parts[1]) : 3.0;
+          });
+          const avg = nums.reduce((a, b) => a + b, 0) / nums.length;
+          return `1:${avg.toFixed(1)}`;
+        })()
+      : null;
 
-  const handleOpenUnlock = () => {
-    setUnlockModalOpen(true);
-  };
+  // Signals today: count signals recorded today from history
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const signalsToday = history.filter(
+    (e) => e.recordedAt >= todayStart.getTime(),
+  ).length;
+  // If no history yet, show live signal count (from current engine)
+  const signalsTodayDisplay = signalsToday > 0 ? signalsToday : signalCount;
 
-  if (isLoading) {
-    return (
-      <div data-ocid="dashboard.loading_state" className="space-y-4">
-        {SKELETON_KEYS.map((k) => (
-          <Skeleton
-            key={k}
-            className="h-36 rounded-xl"
-            style={{ background: "rgba(255,255,255,0.05)" }}
-          />
-        ))}
-      </div>
-    );
-  }
-
-  // Combine tokens for the signals section: free tier shows 3, pro shows all
-  const freeSignalTokens = tokens
-    .filter((t) => FREE_TIER_IDS.includes(t.id))
-    .slice(0, 3);
-  const proOnlySignalTokens = isPremium
-    ? [
-        ...tokens.filter((t) => !FREE_TIER_IDS.includes(t.id)).slice(0, 4),
-        ...lowCapGems.slice(0, 3),
-      ]
-    : [];
-  const lockedPreviewTokens = !isPremium
-    ? [
-        ...tokens.filter((t) => !FREE_TIER_IDS.includes(t.id)).slice(0, 4),
-        ...lowCapGems.slice(0, 3),
-      ]
-    : [];
+  const fearGreedColor = fearGreed
+    ? fearGreed.value < 25
+      ? "#FF3B5C"
+      : fearGreed.value < 45
+        ? "#FF9500"
+        : fearGreed.value < 55
+          ? "#D4AF37"
+          : fearGreed.value < 75
+            ? "#00D4FF"
+            : "#00FF88"
+    : "#D4AF37";
 
   return (
-    <>
-      <style>{`
-        @keyframes gemGlow {
-          from { box-shadow: 0 0 8px rgba(255,215,0,0.5), 0 0 16px rgba(0,255,136,0.2); }
-          to   { box-shadow: 0 0 18px rgba(255,215,0,0.8), 0 0 32px rgba(0,255,136,0.5); }
-        }
-      `}</style>
-
-      <div className="space-y-10">
-        {/* AI Alpha Section */}
-        <AlphaSection tokens={alphaTokens} onOpenDetail={handleOpenDetail} />
-
-        {/* ── AI SIGNALS ── */}
-        <section>
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <h2 className="text-lg font-bold text-white">
-                AI Trading Signals
-              </h2>
-              {isPremium ? (
-                <span
-                  className="text-xs px-2 py-0.5 rounded-full font-bold"
-                  style={{
-                    background: "rgba(240,185,11,0.15)",
-                    color: "#F0B90B",
-                    border: "1px solid rgba(240,185,11,0.3)",
-                  }}
-                >
-                  👑 PRO
-                </span>
-              ) : (
-                <span
-                  className="text-xs px-2 py-0.5 rounded-full"
-                  style={{
-                    background: "rgba(0,212,255,0.15)",
-                    color: "#00D4FF",
-                    border: "1px solid rgba(0,212,255,0.3)",
-                  }}
-                >
-                  Free (3/10+)
-                </span>
-              )}
-            </div>
-            {!isPremium && (
-              <button
-                type="button"
-                data-ocid="signals.unlock.open_modal_button"
-                onClick={handleOpenUnlock}
-                className="text-xs font-semibold px-3 py-1.5 rounded-lg transition-all"
-                style={{
-                  background: "linear-gradient(135deg, #F0B90B, #d4af37)",
-                  color: "#000",
-                }}
-              >
-                Unlock 10+ Signals
-              </button>
-            )}
-          </div>
-
-          <div className="space-y-2.5">
-            {/* Free tier signals (always visible) */}
-            {freeSignalTokens.map((token, i) => (
-              <SignalRow
-                key={token.id}
-                token={token}
-                index={i + 1}
-                isPremium={isPremium}
-                onUnlockPro={handleOpenUnlock}
-                onOpenDetail={handleOpenDetail}
-              />
-            ))}
-
-            {/* Pro signals or locked previews */}
-            {isPremium
-              ? proOnlySignalTokens.map((token, i) => (
-                  <SignalRow
-                    key={token.id}
-                    token={token}
-                    index={freeSignalTokens.length + i + 1}
-                    isPremium={isPremium}
-                    onUnlockPro={handleOpenUnlock}
-                    onOpenDetail={handleOpenDetail}
-                  />
-                ))
-              : lockedPreviewTokens.map((token, i) => (
-                  <SignalRow
-                    key={token.id}
-                    token={token}
-                    index={freeSignalTokens.length + i + 1}
-                    isPremium={false}
-                    onUnlockPro={handleOpenUnlock}
-                    onOpenDetail={handleOpenDetail}
-                  />
-                ))}
-          </div>
-
-          {/* Bottom upsell banner for free users */}
-          {!isPremium && (
-            <motion.div
-              data-ocid="signals.upgrade.card"
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.3 }}
-              className="mt-4 rounded-xl p-4 flex items-center justify-between gap-3"
-              style={{
-                background:
-                  "linear-gradient(135deg, rgba(240,185,11,0.08), rgba(24,144,255,0.06))",
-                border: "1px solid rgba(240,185,11,0.2)",
-              }}
-            >
-              <div>
-                <p className="text-sm font-bold text-white">
-                  Unlock 10+ Signals
-                </p>
-                <p
-                  className="text-xs mt-0.5"
-                  style={{ color: "rgba(255,255,255,0.45)" }}
-                >
-                  Including 💎 Hidden Gems with full SMC analysis
-                </p>
-              </div>
-              <button
-                type="button"
-                data-ocid="signals.upgrade.primary_button"
-                onClick={handleOpenUnlock}
-                className="flex-shrink-0 px-4 py-2 rounded-lg text-sm font-bold transition-all"
-                style={{
-                  background: "#F0B90B",
-                  color: "#000",
-                  boxShadow: "0 2px 12px rgba(240,185,11,0.35)",
-                }}
-              >
-                $5 / Lifetime
-              </button>
-            </motion.div>
-          )}
-        </section>
-
-        {/* Top 20 Tokens */}
-        <section>
-          <div className="flex items-center gap-2 mb-4">
-            <h2 className="text-lg font-bold text-white">Top 20 Tokens</h2>
-            <span
-              className="text-xs px-2 py-0.5 rounded-full"
-              style={{
-                background: "rgba(0,212,255,0.15)",
-                color: "#00D4FF",
-                border: "1px solid rgba(0,212,255,0.3)",
-              }}
-            >
-              Free
-            </span>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {tokens.map((token, i) => (
-              <TokenCard
-                key={token.id}
-                token={token}
-                index={i + 1}
-                onOpenDetail={handleOpenDetail}
-                flash={flashMap[token.id]}
-              />
-            ))}
-          </div>
-        </section>
-
-        {/* Low-cap Gems */}
-        <section>
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="space-y-6"
-          >
-            <div className="flex items-center gap-2 mb-4">
-              <h2 className="text-lg font-bold text-white">Low-cap Gems</h2>
-              <span
-                className="text-xs px-2 py-0.5 rounded-full"
-                style={{
-                  background: "rgba(0,255,148,0.12)",
-                  color: "#00FF94",
-                  border: "1px solid rgba(0,255,148,0.3)",
-                }}
-              >
-                💎 Gems
-              </span>
-            </div>
-            <div>
-              <p className="text-xs text-white/40 mb-3">
-                High-risk, high-reward AI picks
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                {lowCapGems.map((token, i) => (
-                  <TokenCard
-                    key={token.id}
-                    token={token}
-                    index={i + 21}
-                    onOpenDetail={handleOpenDetail}
-                    flash={flashMap[token.id]}
-                  />
-                ))}
-              </div>
-            </div>
-          </motion.div>
-        </section>
+    <div className="space-y-4">
+      {/* Connection status */}
+      <div className="flex items-center gap-2">
+        <span
+          className={`w-2 h-2 rounded-full ${
+            connected ? "bg-[#00FF88] animate-pulse" : "bg-[#FF3B5C]"
+          }`}
+        />
+        <span className="text-xs font-mono text-gray-500">
+          {connected
+            ? `LIVE — Binance WebSocket Connected (${loadedCount}/20)`
+            : "Connecting to Binance..."}
+        </span>
       </div>
 
-      {/* Token Detail Modal */}
-      <TokenDetailModal
-        token={selectedToken}
-        open={detailOpen}
-        onClose={handleCloseDetail}
-        isPremium={isPremium}
-        onUnlockPro={handleUnlockFromDetail}
-      />
+      {/* Stat cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          {
+            label: "Signals Today",
+            value: String(signalsTodayDisplay),
+            icon: Activity,
+            color: "#00D4FF",
+            sub: signalsTodayDisplay === 0 ? "No signals yet" : "live tracked",
+          },
+          {
+            label: "Win Rate",
+            value: winRate ? `${winRate}%` : "—",
+            icon: BarChart2,
+            color: "#00FF88",
+            sub:
+              completedHistory.length > 0
+                ? `${completedHistory.length} signals`
+                : "No data yet",
+          },
+          {
+            label: "Avg R:R",
+            value: avgRR ?? "—",
+            icon: TrendingUp,
+            color: "#D4AF37",
+            sub: completedHistory.length > 0 ? "from history" : "No data yet",
+          },
+          {
+            label: "Pro Users",
+            value: String(proUserCount),
+            icon: Users,
+            color: "#9945FF",
+            sub: "verified on-chain",
+          },
+        ].map(({ label, value, icon: Icon, color, sub }) => (
+          <div
+            key={label}
+            className="bg-[#0D1117] rounded-xl border border-[#1C2333] p-4 flex items-center gap-3"
+          >
+            <div
+              className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
+              style={{
+                background: `${color}15`,
+                border: `1px solid ${color}30`,
+              }}
+            >
+              <Icon size={16} style={{ color }} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-gray-500 text-[10px] mb-0.5 truncate">
+                {label}
+              </p>
+              <p className="font-mono font-bold text-base text-white leading-tight">
+                {value}
+              </p>
+              {sub && (
+                <p className="text-gray-600 text-[10px] font-mono truncate">
+                  {sub}
+                </p>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
 
-      {/* Unlock Pro Modal */}
-      <UnlockProModal
-        open={unlockModalOpen}
-        onClose={() => setUnlockModalOpen(false)}
-        onSuccess={() => setUnlockModalOpen(false)}
-        icpPrice={icpPrice}
-        unlockNow={unlockNow}
-      />
-    </>
+      {/* Fear & Greed + Sentiment */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="bg-[#0D1117] rounded-xl border border-[#1C2333] p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-white font-mono font-bold text-sm">
+                FEAR & GREED INDEX
+              </h3>
+              <p className="text-gray-500 text-xs">via Alternative.me · Live</p>
+            </div>
+            <span className="text-[10px] font-mono bg-[#D4AF37]/10 px-2 py-1 rounded border border-[#D4AF37]/30 text-[#FFD700]">
+              LIVE
+            </span>
+          </div>
+          {fearGreed ? (
+            <div className="flex items-center gap-6">
+              <div className="relative w-24 h-24 shrink-0">
+                <svg
+                  viewBox="0 0 36 36"
+                  className="w-full h-full -rotate-90"
+                  aria-label="Fear and Greed gauge"
+                  role="img"
+                >
+                  <title>Fear and Greed gauge</title>
+                  <circle
+                    cx="18"
+                    cy="18"
+                    r="15.9"
+                    fill="none"
+                    stroke="#1C2333"
+                    strokeWidth="3"
+                  />
+                  <circle
+                    cx="18"
+                    cy="18"
+                    r="15.9"
+                    fill="none"
+                    stroke={fearGreedColor}
+                    strokeWidth="3"
+                    strokeDasharray={`${fearGreed.value} ${
+                      100 - fearGreed.value
+                    }`}
+                    strokeLinecap="round"
+                  />
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <span className="font-mono font-bold text-xl text-white">
+                    {fearGreed.value}
+                  </span>
+                </div>
+              </div>
+              <div>
+                <p
+                  className="font-mono font-bold text-lg"
+                  style={{ color: fearGreedColor }}
+                >
+                  {fearGreed.label}
+                </p>
+                <p className="text-gray-500 text-xs mt-1">
+                  Market sentiment score
+                </p>
+                <div className="flex gap-1 mt-2 flex-wrap">
+                  {[
+                    "Extreme Fear",
+                    "Fear",
+                    "Neutral",
+                    "Greed",
+                    "Extreme Greed",
+                  ].map((l, i) => {
+                    const ranges = [
+                      [0, 25],
+                      [25, 45],
+                      [45, 55],
+                      [55, 75],
+                      [75, 100],
+                    ];
+                    const isActive =
+                      fearGreed.value >= ranges[i][0] &&
+                      fearGreed.value < ranges[i][1];
+                    return (
+                      <span
+                        key={l}
+                        className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${
+                          isActive ? "text-white" : "text-gray-600"
+                        }`}
+                        style={
+                          isActive
+                            ? {
+                                background: `${fearGreedColor}30`,
+                                border: `1px solid ${fearGreedColor}50`,
+                              }
+                            : {}
+                        }
+                      >
+                        {l}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 text-gray-500 text-xs font-mono py-4">
+              <span className="w-2 h-2 rounded-full bg-[#D4AF37] animate-pulse" />
+              Fetching from Alternative.me...
+            </div>
+          )}
+        </div>
+
+        <div className="bg-[#0D1117] rounded-xl border border-[#1C2333] p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-white font-mono font-bold text-sm">
+                MARKET SENTIMENT
+              </h3>
+              <p className="text-gray-500 text-xs">SMC + Social Combined</p>
+            </div>
+            <span className="text-[#FFD700] text-[10px] font-mono bg-[#D4AF37]/10 px-2 py-1 rounded border border-[#D4AF37]/30">
+              LIVE
+            </span>
+          </div>
+          <SentimentGauge showSubScores />
+        </div>
+      </div>
+
+      {/* Top 20 Assets */}
+      <div>
+        <div className="flex items-center gap-3 mb-3">
+          <h3 className="text-white font-mono font-bold text-xs tracking-wider">
+            TOP 20 ASSETS
+          </h3>
+          <span className="text-[#00D4FF] text-[10px] font-mono">
+            Binance WebSocket + CoinGecko
+          </span>
+          <span className="text-gray-600 text-[10px] font-mono ml-auto">
+            {loadedCount}/20 loaded
+          </span>
+        </div>
+        <div className="bg-[#0D1117] rounded-xl border border-[#1C2333] overflow-hidden">
+          <div className="grid grid-cols-[28px_1fr_90px_64px_80px] gap-2 px-4 py-2 border-b border-[#1C2333] text-[10px] font-mono text-gray-500 uppercase tracking-wider">
+            <span>#</span>
+            <span>Asset</span>
+            <span className="text-right">Price</span>
+            <span className="text-right">24h</span>
+            <span className="text-right">Mkt Cap</span>
+          </div>
+          {TRACKED_SYMBOLS.map((symbol, idx) => {
+            const p = prices[symbol];
+            const color = COIN_COLORS[symbol] ?? "#D4AF37";
+            const name = COIN_NAMES[symbol] ?? symbol.replace("USDT", "");
+            const ticker = symbol.replace("USDT", "");
+            const change = p?.change24h ?? 0;
+            const isUp = change >= 0;
+            return (
+              <div
+                key={symbol}
+                data-ocid={`dashboard.asset.item.${idx + 1}`}
+                className="grid grid-cols-[28px_1fr_90px_64px_80px] gap-2 items-center px-4 py-2.5 border-b border-[#1C2333]/50 last:border-0 hover:bg-[#1C2333]/20 transition-colors"
+                style={
+                  p?.flashColor
+                    ? { boxShadow: `inset 3px 0 0 ${p.flashColor}60` }
+                    : {}
+                }
+              >
+                <span className="text-gray-600 text-[10px] font-mono text-center">
+                  {idx + 1}
+                </span>
+                <div className="flex items-center gap-2 min-w-0">
+                  <div
+                    className="w-6 h-6 rounded-full flex items-center justify-center text-[8px] font-bold shrink-0"
+                    style={{
+                      background: `${color}20`,
+                      border: `1px solid ${color}50`,
+                      color,
+                    }}
+                  >
+                    {ticker.slice(0, 3)}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-white font-bold text-xs leading-tight truncate">
+                      {name}
+                    </p>
+                    <p className="text-gray-600 text-[10px] font-mono">
+                      {ticker}
+                    </p>
+                  </div>
+                </div>
+                <p
+                  className="font-mono font-bold text-xs text-right transition-colors duration-300"
+                  style={{ color: p?.flashColor ?? "#FFFFFF" }}
+                >
+                  {p ? (
+                    `$${fmt(p.price)}`
+                  ) : (
+                    <span className="text-gray-700 text-[10px]">—</span>
+                  )}
+                </p>
+                <span
+                  className="text-[10px] font-mono font-bold px-1 py-0.5 rounded text-right"
+                  style={{
+                    color: isUp ? "#00FF88" : "#FF3B5C",
+                    background: isUp ? "#00FF8810" : "#FF3B5C10",
+                  }}
+                >
+                  {p ? `${isUp ? "+" : ""}${change.toFixed(2)}%` : "—"}
+                </span>
+                <span className="text-gray-400 text-[10px] font-mono text-right">
+                  {p?.marketCap ? fmtMC(p.marketCap) : "—"}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
   );
 }

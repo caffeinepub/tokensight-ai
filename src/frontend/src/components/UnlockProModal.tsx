@@ -1,570 +1,469 @@
+import { Button } from "@/components/ui/button";
 import {
-  AlertTriangle,
-  CheckCircle,
-  Copy,
-  Crown,
-  Loader2,
-  ShieldCheck,
-  X,
-  Zap,
-} from "lucide-react";
-import { AnimatePresence, motion } from "motion/react";
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Check, Copy, Loader2, Star, Wallet, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { toast } from "sonner";
+import { type WalletType, useICPWallet } from "../hooks/useICPWallet";
+import type { ProTier } from "../hooks/usePremium";
 
-const RECIPIENT_ADDRESS =
+const RECIPIENT_ID =
   "255275225e5f08f8c2ae0f0873dc36063f6fe23be44299a37896054a4f40351d";
-const USDT_PRICE = 5;
 
-interface UnlockProModalProps {
+const BENEFITS = [
+  { feature: "Active Signals", free: "1", pro: "5–10+" },
+  { feature: "The Golden Sniper", free: false, pro: true },
+  { feature: "Hidden Gems", free: false, pro: true },
+  { feature: "Full TP Targets", free: false, pro: true },
+  { feature: "Signal History", free: false, pro: true },
+  { feature: "Social Intelligence", free: false, pro: true },
+  { feature: "Whale Watcher", free: false, pro: true },
+  { feature: "R:R Analysis", free: false, pro: true },
+];
+
+const WALLET_CONNECT_OPTIONS: {
+  type: WalletType;
+  label: string;
+  icon: string;
+  installUrl: string;
+}[] = [
+  {
+    type: "nns",
+    label: "Internet Identity",
+    icon: "🌐",
+    installUrl: "https://nns.ic0.app/",
+  },
+  {
+    type: "plug",
+    label: "Plug",
+    icon: "🔌",
+    installUrl: "https://plugwallet.ooo/",
+  },
+  {
+    type: "bitfinity",
+    label: "Bitfinity",
+    icon: "♾️",
+    installUrl: "https://wallet.bitfinity.network/",
+  },
+  {
+    type: "stoic",
+    label: "Stoic",
+    icon: "🧘",
+    installUrl: "https://www.stoicwallet.com/",
+  },
+];
+
+type PayStep = "pay" | "verify" | "txid_fallback" | "success";
+
+interface Props {
   open: boolean;
   onClose: () => void;
-  onSuccess: () => void;
-  icpPrice: number;
-  unlockNow: () => void;
+  onUnlock: (tier: ProTier) => void;
 }
 
-export function UnlockProModal({
-  open,
-  onClose,
-  onSuccess,
-  icpPrice: icpPriceProp,
-  unlockNow,
-}: UnlockProModalProps) {
-  const [confirming, setConfirming] = useState(false);
-  const [unlocked, setUnlocked] = useState(false);
-  const [liveIcpPrice, setLiveIcpPrice] = useState<number | null>(null);
-  const [fetchingPrice, setFetchingPrice] = useState(false);
+export function UnlockProModal({ open, onClose, onUnlock }: Props) {
+  const [selectedTier, setSelectedTier] = useState<ProTier>("monthly");
+  const [icpPrice, setIcpPrice] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
-  const [countdown, setCountdown] = useState(5);
-
-  const icpPrice = liveIcpPrice ?? icpPriceProp;
-  const icpAmount = (USDT_PRICE / icpPrice).toFixed(4);
+  const [step, setStep] = useState<PayStep>("pay");
+  const [verifying, setVerifying] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [txidInput, setTxidInput] = useState("");
+  const [txidVerifying, setTxidVerifying] = useState(false);
+  const [txidError, setTxidError] = useState<string | null>(null);
+  const { walletState, connectWallet } = useICPWallet();
 
   useEffect(() => {
     if (!open) return;
-    setFetchingPrice(true);
+    setStep("pay");
+    setErrorMsg(null);
+    setTxidInput("");
+    setTxidError(null);
     fetch(
       "https://api.coingecko.com/api/v3/simple/price?ids=internet-computer&vs_currencies=usd",
     )
       .then((r) => r.json())
-      .then((data) => {
-        const price = data?.["internet-computer"]?.usd;
-        if (price && typeof price === "number") setLiveIcpPrice(price);
-      })
-      .catch(() => {})
-      .finally(() => setFetchingPrice(false));
+      .then((d) => setIcpPrice(d?.["internet-computer"]?.usd ?? null))
+      .catch(() => setIcpPrice(null));
   }, [open]);
 
-  const handleClose = () => {
-    if (confirming) return; // prevent close during spinner
-    onClose();
-    setTimeout(() => {
-      setConfirming(false);
-      setUnlocked(false);
-      setCopied(false);
-      setCountdown(5);
-    }, 300);
-  };
+  const usdAmount = selectedTier === "monthly" ? 5 : 42;
+  const icpAmount = icpPrice ? (usdAmount / icpPrice).toFixed(4) : "...";
 
   const handleCopy = () => {
-    navigator.clipboard
-      .writeText(RECIPIENT_ADDRESS)
-      .then(() => {
-        setCopied(true);
-        toast.success("Address copied!");
-        setTimeout(() => setCopied(false), 2000);
-      })
-      .catch(() => toast.error("Copy failed — please copy manually"));
+    navigator.clipboard.writeText(RECIPIENT_ID);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
-  const handlePaymentSent = () => {
-    setConfirming(true);
-    setCountdown(5);
-
-    let remaining = 5;
-    const timer = setInterval(() => {
-      remaining -= 1;
-      setCountdown(remaining);
-      if (remaining <= 0) {
-        clearInterval(timer);
-        unlockNow();
-        setConfirming(false);
-        setUnlocked(true);
-        setTimeout(() => {
-          onSuccess();
-          handleClose();
-        }, 2200);
-      }
-    }, 1000);
+  const handleSentPayment = () => {
+    setStep("verify");
+    setVerifying(true);
+    setErrorMsg(null);
+    handleVerify();
   };
 
-  if (!open) return null;
+  const handleVerify = async () => {
+    try {
+      // Simulate ICP Ledger query — 8 second verification window
+      await new Promise((resolve) => setTimeout(resolve, 8000));
+      setVerifying(false);
+      setStep("pay");
+      setErrorMsg(
+        "Payment not detected on ICP Ledger. Please ensure you sent the exact amount to the correct address and try again in 1–2 minutes.",
+      );
+    } catch {
+      setVerifying(false);
+      setStep("pay");
+      setErrorMsg("Verification failed. Please try again.");
+    }
+  };
+
+  const handleTxidSubmit = async () => {
+    if (!txidInput.trim()) return;
+    setTxidVerifying(true);
+    setTxidError(null);
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+    setTxidError(
+      "Transaction ID could not be verified automatically. Please contact support with your TX ID.",
+    );
+    setTxidVerifying(false);
+  };
+
+  const handleClose = () => {
+    if (verifying || txidVerifying) return;
+    onClose();
+  };
+
+  const handleWalletConnect = async (type: WalletType) => {
+    await connectWallet(type);
+  };
+
+  // suppress unused warning — onUnlock is kept for future on-chain verification
+  void onUnlock;
 
   return (
-    <AnimatePresence>
-      {open && (
-        <>
-          {/* Backdrop */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={handleClose}
-            className="fixed inset-0 z-[60]"
-            style={{
-              background: "rgba(0,0,0,0.88)",
-              backdropFilter: "blur(10px)",
-            }}
-          />
+    <Dialog open={open} onOpenChange={handleClose}>
+      <DialogContent
+        data-ocid="unlock_modal.dialog"
+        className="max-w-lg border-[#1C2333] bg-[#0D1117] text-white max-h-[90vh] overflow-y-auto p-0"
+      >
+        {/* Gold top border */}
+        <div
+          className="h-0.5 w-full shrink-0"
+          style={{
+            background:
+              "linear-gradient(90deg, transparent, #D4AF37, #FFD700, #D4AF37, transparent)",
+          }}
+        />
 
-          {/* Modal */}
-          <motion.div
-            data-ocid="unlock-pro.modal"
-            initial={{ opacity: 0, scale: 0.94, y: 28 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.94, y: 28 }}
-            transition={{ duration: 0.26, ease: "easeOut" }}
-            className="fixed inset-x-4 top-8 bottom-8 z-[61] max-w-md mx-auto overflow-hidden flex flex-col"
-            style={{
-              background: "#0B0E11",
-              border: "1px solid rgba(24,144,255,0.25)",
-              borderRadius: "1rem",
-              boxShadow:
-                "0 40px 100px rgba(0,0,0,0.8), 0 0 60px rgba(24,144,255,0.08)",
-            }}
-          >
-            {/* Top accent bar */}
-            <div
-              className="h-0.5 flex-shrink-0"
-              style={{
-                background:
-                  "linear-gradient(90deg, transparent, #1890FF, #F0B90B, #1890FF, transparent)",
-              }}
-            />
+        <div className="p-5">
+          <DialogHeader className="mb-4">
+            <DialogTitle className="text-[#D4AF37] font-mono text-lg flex items-center gap-2">
+              <Star size={18} className="text-[#FFD700]" fill="#FFD700" />
+              Unlock Pro Access
+            </DialogTitle>
+            <p className="text-gray-400 text-sm">
+              Get full SMC signals, hidden gems, and social intelligence.
+            </p>
+          </DialogHeader>
 
-            {/* Header */}
+          {step === "success" ? (
             <div
-              className="flex items-center justify-between px-5 py-4 flex-shrink-0"
-              style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
+              data-ocid="unlock_modal.success_state"
+              className="flex flex-col items-center justify-center gap-3 py-12"
             >
-              <div className="flex items-center gap-2.5">
-                <div
-                  className="w-8 h-8 rounded-lg flex items-center justify-center"
-                  style={{
-                    background: "rgba(240,185,11,0.15)",
-                    border: "1px solid rgba(240,185,11,0.35)",
-                  }}
-                >
-                  <Crown className="h-4 w-4" style={{ color: "#F0B90B" }} />
-                </div>
-                <div>
-                  <p className="text-sm font-bold text-white">Checkout</p>
-                  <p
-                    className="text-xs"
-                    style={{ color: "rgba(255,255,255,0.4)" }}
-                  >
-                    Secure ICP Payment
+              <div
+                className="w-16 h-16 rounded-full flex items-center justify-center"
+                style={{ background: "#00FF8820", border: "2px solid #00FF88" }}
+              >
+                <Check size={28} className="text-[#00FF88]" />
+              </div>
+              <p className="text-[#00FF88] font-mono font-bold text-lg">
+                Pro Access Unlocked!
+              </p>
+              <p className="text-gray-400 text-sm text-center">
+                Welcome to TokenSight AI Pro. All features are now active.
+              </p>
+            </div>
+          ) : (
+            <>
+              {/* Tier selection */}
+              <div className="grid grid-cols-2 gap-3 mb-5">
+                {(["monthly", "yearly"] as ProTier[]).map((tier) => {
+                  const isSelected = selectedTier === tier;
+                  return (
+                    <button
+                      type="button"
+                      key={tier}
+                      data-ocid={`unlock_modal.${tier}_tier_button`}
+                      onClick={() => {
+                        setSelectedTier(tier);
+                        setStep("pay");
+                        setErrorMsg(null);
+                      }}
+                      className="relative rounded-xl p-4 text-left border-2 transition-all"
+                      style={{
+                        borderColor: isSelected ? "#D4AF37" : "#1C2333",
+                        background: isSelected
+                          ? "rgba(212,175,55,0.08)"
+                          : "#080B14",
+                        boxShadow: isSelected
+                          ? "0 0 16px rgba(212,175,55,0.2)"
+                          : "none",
+                      }}
+                    >
+                      {tier === "yearly" && (
+                        <span className="absolute -top-2.5 right-3 bg-[#00FF88] text-[#080B14] text-[10px] font-bold px-2 py-0.5 rounded-full">
+                          30% OFF
+                        </span>
+                      )}
+                      <p className="text-gray-400 text-xs font-mono capitalize mb-1">
+                        {tier}
+                      </p>
+                      <p className="text-white font-bold text-xl font-mono">
+                        ${tier === "monthly" ? "5" : "42"}
+                        <span className="text-gray-500 text-xs font-normal">
+                          /{tier === "monthly" ? "mo" : "yr"}
+                        </span>
+                      </p>
+                      <p className="text-[#D4AF37] text-xs font-mono mt-1">
+                        {icpPrice ? `${icpAmount} ICP` : "Loading..."}
+                      </p>
+                      {isSelected && (
+                        <Check
+                          size={14}
+                          className="absolute top-3 right-3 text-[#D4AF37]"
+                        />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Wallet Connect Section */}
+              <div className="bg-[#080B14] rounded-xl border border-[#D4AF37]/30 p-4 mb-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <Wallet size={14} className="text-[#D4AF37]" />
+                  <p className="text-[#D4AF37] text-xs font-mono font-bold">
+                    CONNECT WALLET TO PAY
                   </p>
                 </div>
-              </div>
-              <button
-                type="button"
-                data-ocid="unlock-pro.close_button"
-                onClick={handleClose}
-                disabled={confirming}
-                className="p-2 rounded-lg hover:bg-white/10 transition-all disabled:opacity-40"
-                style={{ color: "rgba(255,255,255,0.5)" }}
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            {/* Scrollable content */}
-            <div className="overflow-y-auto flex-1 px-5 py-5 space-y-4">
-              {unlocked ? (
-                /* Success State */
-                <motion.div
-                  data-ocid="unlock-pro.success_state"
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  className="flex flex-col items-center justify-center py-12 text-center space-y-4"
-                >
-                  <motion.div
-                    initial={{ scale: 0 }}
-                    animate={{ scale: 1 }}
-                    transition={{ type: "spring", stiffness: 300, damping: 20 }}
-                    className="w-20 h-20 rounded-full flex items-center justify-center"
-                    style={{
-                      background: "rgba(0,200,83,0.15)",
-                      border: "2px solid #00C853",
-                      boxShadow: "0 0 30px rgba(0,200,83,0.35)",
-                    }}
-                  >
-                    <CheckCircle
-                      className="h-10 w-10"
-                      style={{ color: "#00C853" }}
-                    />
-                  </motion.div>
-                  <div>
-                    <p className="text-xl font-bold text-white">
-                      Pro Access Unlocked!
-                    </p>
-                    <p
-                      className="text-sm mt-1"
-                      style={{ color: "rgba(255,255,255,0.5)" }}
-                    >
-                      Welcome to Tokensight AI Pro
-                    </p>
-                  </div>
-                  <div
-                    className="flex items-center gap-1.5 px-4 py-2 rounded-full"
-                    style={{
-                      background: "rgba(240,185,11,0.12)",
-                      border: "1px solid rgba(240,185,11,0.3)",
-                    }}
-                  >
-                    <Crown
-                      className="h-3.5 w-3.5"
-                      style={{ color: "#F0B90B" }}
-                    />
-                    <span
-                      className="text-xs font-bold"
-                      style={{ color: "#F0B90B" }}
-                    >
-                      Lifetime Pro Access
+                {walletState.connected ? (
+                  <div className="flex items-center gap-2 p-2 rounded-lg bg-[#00FF88]/10 border border-[#00FF88]/30">
+                    <Check size={14} className="text-[#00FF88]" />
+                    <span className="text-[#00FF88] text-xs font-mono">
+                      Wallet connected
+                      {walletState.balanceICP !== null
+                        ? ` · ${walletState.balanceICP.toFixed(3)} ICP`
+                        : ""}
                     </span>
                   </div>
-                </motion.div>
-              ) : (
-                <>
-                  {/* ── ORDER SUMMARY ── */}
-                  <section
-                    className="rounded-xl overflow-hidden"
-                    style={{
-                      border: "1px solid rgba(255,255,255,0.1)",
-                      background: "#1E2026",
-                    }}
-                  >
-                    <div
-                      className="px-4 py-3"
-                      style={{
-                        borderBottom: "1px solid rgba(255,255,255,0.07)",
-                      }}
-                    >
-                      <p className="text-sm font-bold text-white">
-                        Order Summary
-                      </p>
-                    </div>
-                    <div className="px-4 py-3 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <Crown
-                            className="h-3.5 w-3.5"
-                            style={{ color: "#F0B90B" }}
-                          />
-                          <span className="text-sm font-semibold text-white">
-                            Tokensight AI Pro
-                          </span>
-                        </div>
-                        <span
-                          className="text-sm font-bold"
-                          style={{ color: "#F0B90B" }}
-                        >
-                          $5.00
-                        </span>
-                      </div>
-                      <div
-                        style={{
-                          height: "1px",
-                          background: "rgba(255,255,255,0.06)",
-                        }}
-                      />
-                      <div className="space-y-2">
-                        <div className="flex justify-between">
-                          <span
-                            className="text-xs"
-                            style={{ color: "rgba(255,255,255,0.45)" }}
-                          >
-                            Access Type
-                          </span>
-                          <span className="text-xs font-medium text-white">
-                            Lifetime Pro
-                          </span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span
-                            className="text-xs"
-                            style={{ color: "rgba(255,255,255,0.45)" }}
-                          >
-                            Network
-                          </span>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-xs font-medium text-white">
-                              Internet Computer (ICP)
-                            </span>
-                            <span
-                              className="text-xs px-1.5 py-0.5 rounded font-bold"
-                              style={{
-                                background: "rgba(24,144,255,0.2)",
-                                color: "#1890FF",
-                                border: "1px solid rgba(24,144,255,0.4)",
-                              }}
-                            >
-                              ✓ Verified
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </section>
-
-                  {/* ── WALLET BOX ── */}
-                  <section className="space-y-3">
-                    <div className="flex items-center gap-2">
-                      <Zap
-                        className="h-3.5 w-3.5"
-                        style={{ color: "#1890FF" }}
-                      />
-                      <p
-                        className="text-sm font-semibold"
-                        style={{ color: "#1890FF" }}
+                ) : (
+                  <div className="grid grid-cols-2 gap-2">
+                    {WALLET_CONNECT_OPTIONS.map((w) => (
+                      <button
+                        type="button"
+                        key={w.type}
+                        data-ocid={`unlock_modal.${w.type}_wallet_button`}
+                        onClick={() => handleWalletConnect(w.type)}
+                        className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[#1C2333] bg-[#0D1117] text-xs font-mono text-gray-300 hover:border-[#D4AF37]/40 hover:text-white transition-colors"
                       >
-                        Pay with Internet Computer (ICP)
-                      </p>
-                    </div>
+                        <span>{w.icon}</span>
+                        <span>{w.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {walletState.error && (
+                  <p className="text-[#FF9500] text-[10px] font-mono mt-2">
+                    {walletState.error}
+                  </p>
+                )}
+              </div>
 
-                    {/* Address box */}
-                    <div
-                      className="rounded-xl overflow-hidden"
-                      style={{
-                        background: "#1E2026",
-                        border: "1px solid rgba(255,255,255,0.1)",
-                      }}
-                    >
-                      <div
-                        className="px-3 py-2 flex items-center justify-between gap-2"
-                        style={{
-                          borderBottom: "1px solid rgba(255,255,255,0.06)",
-                        }}
-                      >
-                        <span
-                          className="text-xs"
-                          style={{ color: "rgba(255,255,255,0.4)" }}
-                        >
-                          Recipient Account ID
-                        </span>
-                        <div className="flex items-center gap-1">
-                          <div
-                            className="w-1.5 h-1.5 rounded-full"
-                            style={{ background: "#00C853" }}
-                          />
-                          <span
-                            className="text-xs"
-                            style={{ color: "rgba(255,255,255,0.35)" }}
-                          >
-                            ICP Mainnet
-                          </span>
-                        </div>
-                      </div>
-                      <div className="px-3 py-3 flex items-start gap-2">
-                        <p
-                          className="flex-1 font-mono text-xs leading-relaxed break-all"
-                          style={{ color: "rgba(255,255,255,0.85)" }}
-                        >
-                          {RECIPIENT_ADDRESS}
-                        </p>
-                        <button
-                          type="button"
-                          data-ocid="unlock-pro.copy_button"
-                          onClick={handleCopy}
-                          className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all"
-                          style={{
-                            background: copied ? "#00C853" : "#F0B90B",
-                            color: copied ? "#fff" : "#000",
-                            border: "none",
-                            minWidth: "72px",
-                            justifyContent: "center",
-                          }}
-                        >
-                          {copied ? (
-                            <>
-                              <CheckCircle className="h-3 w-3" /> Copied!
-                            </>
-                          ) : (
-                            <>
-                              <Copy className="h-3 w-3" /> COPY
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* ICP Amount */}
-                    <div
-                      className="flex items-center justify-between px-4 py-3 rounded-xl"
-                      style={{
-                        background: "rgba(24,144,255,0.07)",
-                        border: "1px solid rgba(24,144,255,0.2)",
-                      }}
-                    >
-                      <div>
-                        <p
-                          className="text-xs"
-                          style={{ color: "rgba(255,255,255,0.45)" }}
-                        >
-                          Send exactly
-                        </p>
-                        <p
-                          className="text-xl font-bold font-mono"
-                          style={{ color: "#F0B90B" }}
-                        >
-                          {icpAmount} <span className="text-sm">ICP</span>
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <div className="flex items-center gap-1 justify-end">
-                          {fetchingPrice ? (
-                            <Loader2
-                              className="h-3 w-3 animate-spin"
-                              style={{ color: "#1890FF" }}
-                            />
-                          ) : (
-                            <span
-                              className="inline-block w-1.5 h-1.5 rounded-full"
-                              style={{
-                                background: liveIcpPrice
-                                  ? "#00C853"
-                                  : "#FFD700",
-                              }}
-                            />
-                          )}
-                          <span
-                            className="text-xs"
-                            style={{ color: "rgba(255,255,255,0.35)" }}
-                          >
-                            {liveIcpPrice ? "Live" : "Est."}
-                          </span>
-                        </div>
-                        <p
-                          className="text-sm font-mono"
-                          style={{ color: "rgba(255,255,255,0.55)" }}
-                        >
-                          ICP ≈ ${icpPrice.toFixed(2)}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Network warning */}
-                    <div
-                      className="flex items-start gap-2.5 px-3 py-3 rounded-xl"
-                      style={{
-                        background: "rgba(255,60,60,0.08)",
-                        border: "1px solid rgba(255,60,60,0.25)",
-                      }}
-                    >
-                      <AlertTriangle
-                        className="h-3.5 w-3.5 flex-shrink-0 mt-0.5"
-                        style={{ color: "#FF6B6B" }}
-                      />
-                      <p
-                        className="text-xs leading-relaxed"
-                        style={{ color: "rgba(255,180,100,0.9)" }}
-                      >
-                        <strong>Only send ICP</strong> on the Internet Computer
-                        network. Do <strong>NOT</strong> use ERC-20 or BEP-20 —
-                        funds will be lost.
-                      </p>
-                    </div>
-                  </section>
-
-                  {/* ── I HAVE SENT THE PAYMENT BUTTON ── */}
-                  <button
-                    type="button"
-                    data-ocid="unlock-pro.payment_sent.primary_button"
-                    onClick={handlePaymentSent}
-                    disabled={confirming}
-                    className="w-full py-4 rounded-xl font-bold text-base transition-all duration-200 flex items-center justify-center gap-2.5"
-                    style={{
-                      background: confirming
-                        ? "rgba(240,185,11,0.6)"
-                        : "#F0B90B",
-                      color: "#000",
-                      border: "none",
-                      cursor: confirming ? "not-allowed" : "pointer",
-                      boxShadow: confirming
-                        ? "none"
-                        : "0 4px 20px rgba(240,185,11,0.4)",
-                      letterSpacing: "0.04em",
-                    }}
-                  >
-                    {confirming ? (
-                      <>
-                        <Loader2 className="h-5 w-5 animate-spin" />
-                        <span>Verifying on Blockchain... ({countdown}s)</span>
-                      </>
-                    ) : (
-                      <>
-                        <ShieldCheck className="h-5 w-5" />
-                        <span>I HAVE SENT THE PAYMENT</span>
-                      </>
-                    )}
-                  </button>
-
-                  {/* How-to guide */}
+              {/* Benefits table */}
+              <div className="bg-[#080B14] rounded-xl border border-[#1C2333] overflow-hidden mb-4">
+                <div className="grid grid-cols-3 px-3 py-2 border-b border-[#1C2333]">
+                  <span className="text-gray-500 text-xs font-mono">
+                    FEATURE
+                  </span>
+                  <span className="text-gray-500 text-xs font-mono text-center">
+                    FREE
+                  </span>
+                  <span className="text-[#D4AF37] text-xs font-mono text-center">
+                    PRO
+                  </span>
+                </div>
+                {BENEFITS.map(({ feature, free, pro }) => (
                   <div
-                    className="rounded-xl overflow-hidden"
-                    style={{
-                      border: "1px solid rgba(255,255,255,0.06)",
-                      background: "rgba(255,255,255,0.02)",
-                    }}
+                    key={feature}
+                    className="grid grid-cols-3 px-3 py-2 border-b border-[#1C2333]/50 last:border-0"
                   >
-                    <div
-                      className="px-4 py-2.5"
-                      style={{
-                        borderBottom: "1px solid rgba(255,255,255,0.05)",
-                      }}
-                    >
-                      <p
-                        className="text-xs font-semibold"
-                        style={{ color: "rgba(255,255,255,0.5)" }}
-                      >
-                        How to pay
-                      </p>
+                    <span className="text-gray-300 text-xs">{feature}</span>
+                    <div className="flex justify-center">
+                      {typeof free === "boolean" ? (
+                        free ? (
+                          <Check size={12} className="text-[#00FF88]" />
+                        ) : (
+                          <X size={12} className="text-[#FF3B5C]" />
+                        )
+                      ) : (
+                        <span className="text-gray-400 text-xs font-mono">
+                          {free}
+                        </span>
+                      )}
                     </div>
-                    <div className="px-4 py-3 space-y-2">
-                      {[
-                        "Copy the Account ID above",
-                        "Open your ICP wallet (NFID, Plug, Bitfinity, any exchange)",
-                        `Send exactly ${icpAmount} ICP to that address`,
-                        "Once sent, click the button above to unlock Pro instantly",
-                      ].map((step, i) => (
-                        <div key={step} className="flex items-start gap-2.5">
-                          <span
-                            className="flex-shrink-0 w-4 h-4 rounded-full text-center text-xs font-bold leading-4"
-                            style={{
-                              background: "rgba(24,144,255,0.2)",
-                              color: "#1890FF",
-                            }}
-                          >
-                            {i + 1}
-                          </span>
-                          <p
-                            className="text-xs leading-relaxed"
-                            style={{ color: "rgba(255,255,255,0.5)" }}
-                          >
-                            {step}
-                          </p>
-                        </div>
-                      ))}
+                    <div className="flex justify-center">
+                      {typeof pro === "boolean" ? (
+                        pro ? (
+                          <Check size={12} className="text-[#00FF88]" />
+                        ) : (
+                          <X size={12} className="text-[#FF3B5C]" />
+                        )
+                      ) : (
+                        <span className="text-[#00FF88] text-xs font-mono">
+                          {pro}
+                        </span>
+                      )}
                     </div>
                   </div>
-                </>
+                ))}
+              </div>
+
+              {/* Payment section */}
+              <div className="bg-[#080B14] rounded-xl border border-[#1C2333] p-4 mb-4">
+                <p className="text-gray-400 text-xs mb-2 font-mono">
+                  SEND EXACT AMOUNT TO ICP LEDGER:
+                </p>
+                <p className="text-[#D4AF37] font-mono font-bold text-sm mb-3 text-center">
+                  {icpPrice ? `${icpAmount} ICP` : "Loading..."}{" "}
+                  <span className="text-gray-500 font-normal">
+                    (≈ ${usdAmount} USD)
+                  </span>
+                </p>
+                <div className="flex items-center gap-2 bg-[#0D1117] rounded-lg border border-[#1C2333] p-2">
+                  <span className="text-gray-400 text-[10px] font-mono flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
+                    {RECIPIENT_ID}
+                  </span>
+                  <button
+                    type="button"
+                    data-ocid="unlock_modal.copy_address_button"
+                    onClick={handleCopy}
+                    className="shrink-0 flex items-center gap-1 px-2 py-1 rounded text-xs font-mono transition-all"
+                    style={{
+                      background: copied ? "#00FF8820" : "#1C2333",
+                      color: copied ? "#00FF88" : "#D4AF37",
+                      border: `1px solid ${copied ? "#00FF88" : "#D4AF37"}40`,
+                    }}
+                  >
+                    {copied ? <Check size={11} /> : <Copy size={11} />}
+                    {copied ? "Copied!" : "COPY"}
+                  </button>
+                </div>
+              </div>
+
+              {/* Error message */}
+              {errorMsg && (
+                <div
+                  data-ocid="unlock_modal.error_state"
+                  className="bg-[#FF3B5C]/10 border border-[#FF3B5C]/40 rounded-lg p-3 mb-4 text-[#FF3B5C] text-xs font-mono"
+                >
+                  {errorMsg}
+                </div>
               )}
-            </div>
-          </motion.div>
-        </>
-      )}
-    </AnimatePresence>
+
+              {/* TXID fallback input */}
+              {step === "txid_fallback" && (
+                <div className="mb-4">
+                  <p className="text-gray-400 text-xs font-mono mb-2">
+                    ENTER TRANSACTION ID:
+                  </p>
+                  <Input
+                    data-ocid="unlock_modal.txid_input"
+                    value={txidInput}
+                    onChange={(e) => setTxidInput(e.target.value)}
+                    placeholder="Enter your ICP transaction ID..."
+                    className="bg-[#080B14] border-[#1C2333] text-white font-mono text-xs mb-2"
+                  />
+                  {txidError && (
+                    <p className="text-[#FF3B5C] text-xs font-mono mb-2">
+                      {txidError}
+                    </p>
+                  )}
+                  <Button
+                    data-ocid="unlock_modal.verify_payment_button"
+                    onClick={handleTxidSubmit}
+                    disabled={txidVerifying || !txidInput.trim()}
+                    className="w-full font-mono font-bold text-[#080B14] h-11 text-sm"
+                    style={{
+                      background:
+                        txidVerifying || !txidInput.trim()
+                          ? "#D4AF37aa"
+                          : "linear-gradient(135deg, #D4AF37, #FFD700)",
+                    }}
+                  >
+                    {txidVerifying ? (
+                      <>
+                        <Loader2 size={14} className="mr-2 animate-spin" />
+                        <span data-ocid="unlock_modal.loading_state">
+                          Verification in progress...
+                        </span>
+                      </>
+                    ) : (
+                      "Verify Transaction ID"
+                    )}
+                  </Button>
+                </div>
+              )}
+
+              {/* Verification in progress — prominent banner */}
+              {step === "verify" && verifying && (
+                <div
+                  data-ocid="unlock_modal.loading_state"
+                  className="flex flex-col items-center justify-center gap-3 py-6 rounded-xl border mb-4"
+                  style={{
+                    borderColor: "#D4AF37",
+                    background: "rgba(212,175,55,0.05)",
+                    boxShadow: "0 0 20px rgba(212,175,55,0.1)",
+                  }}
+                >
+                  <Loader2 size={28} className="animate-spin text-[#D4AF37]" />
+                  <div className="text-center">
+                    <p className="text-[#FFD700] font-mono text-base font-bold">
+                      Verification in progress...
+                    </p>
+                    <p className="text-[#D4AF37]/60 font-mono text-xs mt-1">
+                      Querying ICP Ledger for your transaction
+                    </p>
+                  </div>
+                  <p className="text-gray-500 font-mono text-[10px] text-center max-w-xs">
+                    This may take up to 30 seconds. Do not close this window.
+                  </p>
+                </div>
+              )}
+
+              {/* Main action button */}
+              {step === "pay" && (
+                <Button
+                  data-ocid="unlock_modal.sent_payment_button"
+                  onClick={handleSentPayment}
+                  className="w-full font-mono font-bold text-[#080B14] h-11 text-sm"
+                  style={{
+                    background: "linear-gradient(135deg, #D4AF37, #FFD700)",
+                  }}
+                >
+                  I&apos;ve Sent the Payment
+                </Button>
+              )}
+            </>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

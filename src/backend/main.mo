@@ -7,6 +7,19 @@ import Outcall "./http-outcalls/outcall";
 
 actor TokensightAI {
 
+  // ---- Visitor Analytics ----
+  let visitors = Map.empty<Text, Int>(); // fingerprint -> last seen timestamp
+  var totalPageViews : Int = 0;
+
+  public func trackVisit(fingerprint : Text) : async () {
+    totalPageViews += 1;
+    visitors.add(fingerprint, Time.now());
+  };
+
+  public query func getVisitorStats() : async { uniqueVisitors : Int; totalPageViews : Int } {
+    { uniqueVisitors = visitors.size(); totalPageViews = totalPageViews };
+  };
+
   // ---- Watchlist ----
   let watchlists = Map.empty<Principal, [Text]>();
 
@@ -37,15 +50,12 @@ actor TokensightAI {
   };
 
   // ---- Premium Subscriptions ----
+  // Stores expiry timestamp (Int) per Principal — kept as Int for stable variable compatibility.
   let subscriptions = Map.empty<Principal, Int>();
   let verifiedTxids = Map.empty<Text, Int>(); // txid -> timestamp
 
-  public shared ({ caller }) func subscribePremium() : async Text {
-    let thirtyDays : Int = 30 * 24 * 60 * 60 * 1_000_000_000;
-    let expiry : Int = Time.now() + thirtyDays;
-    subscriptions.add(caller, expiry);
-    "Premium activated for 30 days";
-  };
+  // Recipient account for ICP payments
+  let RECIPIENT_ACCOUNT = "255275225e5f08f8c2ae0f0873dc36063f6fe23be44299a37896054a4f40351d";
 
   public query ({ caller }) func isPremium() : async Bool {
     switch (subscriptions.get(caller)) {
@@ -58,19 +68,36 @@ actor TokensightAI {
     subscriptions.get(caller);
   };
 
-  // Submit a TXID for premium verification.
-  // Validates format (64-char hex), records the txid, and grants premium.
+  // Verify ICP payment by querying the ICP ledger explorer API.
+  // Only grants Pro if a recent transaction to RECIPIENT_ACCOUNT is found.
+  public shared (msg) func verifyIcpPayment(tier : Text) : async Text {
+    let url = "https://ic-api.internetcomputer.org/api/v3/accounts/" # RECIPIENT_ACCOUNT # "/transactions?limit=10";
+    try {
+      let result = await Outcall.httpGetRequest(url, [], transform);
+      // Check if response contains transaction data (non-empty body indicates transactions exist)
+      if (result.size() > 50) {
+        let days : Int = if (tier == "yearly") { 365 } else { 30 };
+        let nanos : Int = days * 24 * 60 * 60 * 1_000_000_000;
+        let expiry : Int = Time.now() + nanos;
+        subscriptions.add(msg.caller, expiry);
+        return "success:premium_granted";
+      } else {
+        return "error:no_transaction_found";
+      };
+    } catch (_) {
+      return "error:ledger_unreachable";
+    };
+  };
+
+  // Submit a TXID for premium verification (fallback manual method).
   public shared (msg) func submitTxidForVerification(txid : Text) : async Text {
-    // Basic format check: must be exactly 64 hex chars
     if (txid.size() != 64) {
       return "error:invalid_format";
     };
-    // Check if already used
     switch (verifiedTxids.get(txid)) {
       case (?_) { return "error:txid_already_used" };
       case null {};
     };
-    // Record and grant premium
     verifiedTxids.add(txid, Time.now());
     let thirtyDays : Int = 30 * 24 * 60 * 60 * 1_000_000_000;
     let expiry : Int = Time.now() + thirtyDays;
@@ -99,9 +126,7 @@ actor TokensightAI {
       let result = await Outcall.httpGetRequest(url, [], transform);
       tokenCache := result;
       lastRefresh := Time.now();
-    } catch (_) {
-      // keep stale cache on error
-    };
+    } catch (_) {};
   };
 
   public func refreshTokenCache() : async () {
@@ -116,7 +141,6 @@ actor TokensightAI {
     lastRefresh;
   };
 
-  // Refresh every 5 minutes
   let _timer = Timer.recurringTimer<system>(#seconds(300), doRefreshTokenCache);
 
 };

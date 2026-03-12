@@ -1,128 +1,85 @@
 import { useCallback, useEffect, useState } from "react";
-import { useActor } from "./useActor";
 
-const STORAGE_KEY = "tokensight_premium";
+export type ProTier = "monthly" | "yearly";
 
-interface PremiumData {
-  isPremium: boolean;
-  txid: string;
-  grantedAt: number;
+export interface PremiumState {
+  isPro: boolean;
+  proTier: ProTier | null;
+  purchaseDate: number | null;
+  daysRemaining: number | null;
+  isAdminAccess: boolean;
+  unlockPro: (tier: ProTier) => void;
+  grantAdminAccess: () => void;
+  revokePro: () => void;
 }
 
-function loadFromStorage(): PremiumData | null {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw) as PremiumData;
-  } catch {
-    return null;
-  }
-}
+const TIER_DAYS: Record<ProTier, number> = {
+  monthly: 30,
+  yearly: 365,
+};
 
-function saveToStorage(data: PremiumData) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  } catch {}
-}
+export function usePremium(): PremiumState {
+  const [isPro, setIsPro] = useState(false);
+  const [proTier, setProTier] = useState<ProTier | null>(null);
+  const [purchaseDate, setPurchaseDate] = useState<number | null>(null);
+  const [daysRemaining, setDaysRemaining] = useState<number | null>(null);
+  const [isAdminAccess, setIsAdminAccess] = useState(false);
 
-function clearStorage() {
-  try {
-    localStorage.removeItem(STORAGE_KEY);
-  } catch {}
-}
+  const revokePro = useCallback(() => {
+    localStorage.removeItem("proTier");
+    localStorage.removeItem("purchaseDate");
+    setIsPro(false);
+    setProTier(null);
+    setPurchaseDate(null);
+    setDaysRemaining(null);
+    setIsAdminAccess(false);
+  }, []);
 
-export function usePremium() {
-  const { actor } = useActor();
-  const [isPremium, setIsPremium] = useState<boolean>(() => {
-    const stored = loadFromStorage();
-    return stored?.isPremium ?? false;
-  });
+  const grantAdminAccess = useCallback(() => {
+    setIsPro(true);
+    setIsAdminAccess(true);
+    setProTier("yearly");
+    setDaysRemaining(365);
+  }, []);
 
-  // On init, re-verify stored TXID with backend if available
   useEffect(() => {
-    const stored = loadFromStorage();
-    if (!stored?.txid || !actor) return;
-
-    (async () => {
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const actorAny = actor as any;
-        if (typeof actorAny.checkTxidVerified === "function") {
-          const valid: boolean = await actorAny.checkTxidVerified(stored.txid);
-          if (!valid && stored.txid !== "payment-confirmed") {
-            clearStorage();
-            setIsPremium(false);
-          }
-        }
-      } catch {
-        // backend doesn't support this method — trust localStorage
+    const storedTier = localStorage.getItem("proTier") as ProTier | null;
+    const storedDate = localStorage.getItem("purchaseDate");
+    if (storedTier && storedDate) {
+      const purchasedAt = Number(storedDate);
+      const now = Date.now();
+      const maxDays = TIER_DAYS[storedTier];
+      const elapsed = (now - purchasedAt) / (1000 * 60 * 60 * 24);
+      const remaining = Math.ceil(maxDays - elapsed);
+      if (remaining <= 0) {
+        revokePro();
+      } else {
+        setIsPro(true);
+        setProTier(storedTier);
+        setPurchaseDate(purchasedAt);
+        setDaysRemaining(remaining);
       }
-    })();
-  }, [actor]);
+    }
+  }, [revokePro]);
 
-  /** Instant unlock — called after the user confirms they've sent the payment */
-  const unlockNow = useCallback(() => {
-    const data: PremiumData = {
-      isPremium: true,
-      txid: "payment-confirmed",
-      grantedAt: Date.now(),
-    };
-    saveToStorage(data);
-    setIsPremium(true);
+  const unlockPro = useCallback((tier: ProTier) => {
+    const now = Date.now();
+    localStorage.setItem("proTier", tier);
+    localStorage.setItem("purchaseDate", String(now));
+    setIsPro(true);
+    setProTier(tier);
+    setPurchaseDate(now);
+    setDaysRemaining(TIER_DAYS[tier]);
   }, []);
 
-  const unlockWithTxid = useCallback(
-    async (txid: string): Promise<true | string> => {
-      if (!txid || txid.length < 8) {
-        return "Please enter a valid Transaction ID.";
-      }
-
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const actorAny = actor as any;
-        if (typeof actorAny.submitTxidForVerification === "function") {
-          const result: string = await actorAny.submitTxidForVerification(txid);
-          if (result === "success:premium_granted") {
-            const data: PremiumData = {
-              isPremium: true,
-              txid,
-              grantedAt: Date.now(),
-            };
-            saveToStorage(data);
-            setIsPremium(true);
-            return true;
-          }
-          if (result.startsWith("error:")) {
-            return result.replace("error:", "").trim();
-          }
-        }
-
-        const hexRegex = /^[0-9a-fA-F]{8,}$/;
-        if (!hexRegex.test(txid.replace(/\s/g, ""))) {
-          return "Invalid Transaction ID format. Please double-check and try again.";
-        }
-
-        const data: PremiumData = {
-          isPremium: true,
-          txid,
-          grantedAt: Date.now(),
-        };
-        saveToStorage(data);
-        setIsPremium(true);
-        return true;
-      } catch (e) {
-        return e instanceof Error
-          ? e.message
-          : "Verification failed. Try again.";
-      }
-    },
-    [actor],
-  );
-
-  const resetPremium = useCallback(() => {
-    clearStorage();
-    setIsPremium(false);
-  }, []);
-
-  return { isPremium, unlockNow, unlockWithTxid, resetPremium };
+  return {
+    isPro,
+    proTier,
+    purchaseDate,
+    daysRemaining,
+    isAdminAccess,
+    unlockPro,
+    grantAdminAccess,
+    revokePro,
+  };
 }

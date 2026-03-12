@@ -68,6 +68,24 @@ export function useSubscriptionExpiry() {
   });
 }
 
+export function useVisitorStats() {
+  const { actor, isFetching } = useActor();
+  return useQuery<{ uniqueVisitors: bigint; totalPageViews: bigint }>({
+    queryKey: ["visitorStats"],
+    queryFn: async () => {
+      if (!actor) return { uniqueVisitors: 0n, totalPageViews: 0n };
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return await (actor as any).getVisitorStats();
+      } catch {
+        return { uniqueVisitors: 0n, totalPageViews: 0n };
+      }
+    },
+    enabled: !!actor && !isFetching,
+    staleTime: 60_000,
+  });
+}
+
 export function useAddToWatchlist() {
   const { actor } = useActor();
   const queryClient = useQueryClient();

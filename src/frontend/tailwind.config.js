@@ -10,15 +10,13 @@ export default {
     container: {
       center: true,
       padding: "2rem",
-      screens: {
-        "2xl": "1400px",
-      },
+      screens: { "2xl": "1400px" },
     },
     extend: {
       fontFamily: {
-        sans: ['Outfit', 'Sora', 'ui-sans-serif', 'system-ui', 'sans-serif'],
-        display: ['Outfit', 'ui-sans-serif', 'system-ui'],
-        mono: ['Geist Mono', 'JetBrains Mono', 'ui-monospace'],
+        sans: ["Outfit", "ui-sans-serif", "system-ui", "sans-serif"],
+        display: ["Outfit", "ui-sans-serif"],
+        mono: ["JetBrains Mono", "Geist Mono", "ui-monospace"],
       },
       colors: {
         border: "oklch(var(--border))",
@@ -71,12 +69,16 @@ export default {
           border: "oklch(var(--sidebar-border))",
           ring: "oklch(var(--sidebar-ring))",
         },
-        neon: {
-          blue: '#00D4FF',
-          purple: '#8B5CF6',
-          green: '#00FF94',
-          yellow: '#FFD700',
-          red: '#FF4444',
+        terminal: {
+          bg: "#080B14",
+          surface: "#0D1117",
+          border: "#1C2333",
+          gold: "#D4AF37",
+          "gold-bright": "#FFD700",
+          blue: "#00D4FF",
+          green: "#00FF88",
+          red: "#FF3B5C",
+          orange: "#FF8C42",
         },
       },
       borderRadius: {
@@ -87,11 +89,11 @@ export default {
         "2xl": "1.5rem",
       },
       boxShadow: {
-        xs: "0 1px 2px 0 rgba(0,0,0,0.05)",
-        'neon-blue': '0 0 15px rgba(0,212,255,0.3), 0 0 30px rgba(0,212,255,0.15)',
-        'neon-purple': '0 0 15px rgba(139,92,246,0.3), 0 0 30px rgba(139,92,246,0.15)',
-        'neon-green': '0 0 12px rgba(0,255,148,0.3), 0 0 25px rgba(0,255,148,0.15)',
-        'glass': '0 8px 32px rgba(0,0,0,0.4)',
+        "neon-gold": "0 0 15px rgba(212,175,55,0.35), 0 0 30px rgba(212,175,55,0.15)",
+        "neon-blue": "0 0 15px rgba(0,212,255,0.35), 0 0 30px rgba(0,212,255,0.15)",
+        "neon-green": "0 0 15px rgba(0,255,136,0.35), 0 0 30px rgba(0,255,136,0.15)",
+        "neon-red": "0 0 15px rgba(255,59,92,0.35), 0 0 30px rgba(255,59,92,0.15)",
+        glass: "0 8px 32px rgba(0,0,0,0.6)",
       },
       keyframes: {
         "accordion-down": {
@@ -102,11 +104,15 @@ export default {
           from: { height: "var(--radix-accordion-content-height)" },
           to: { height: "0" },
         },
-        "pulse-neon": {
-          "0%, 100%": { opacity: "1" },
-          "50%": { opacity: "0.6" },
+        "whale-scroll": {
+          "0%": { transform: "translateX(0)" },
+          "100%": { transform: "translateX(-50%)" },
         },
-        "shimmer": {
+        "pulse-gold": {
+          "0%, 100%": { opacity: "1", boxShadow: "0 0 12px rgba(212,175,55,0.3)" },
+          "50%": { opacity: "0.8", boxShadow: "0 0 24px rgba(212,175,55,0.5)" },
+        },
+        shimmer: {
           "0%": { backgroundPosition: "-200% 0" },
           "100%": { backgroundPosition: "200% 0" },
         },
@@ -114,8 +120,9 @@ export default {
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
-        "pulse-neon": "pulse-neon 2s ease-in-out infinite",
-        "shimmer": "shimmer 2s linear infinite",
+        "whale-scroll": "whale-scroll 50s linear infinite",
+        "pulse-gold": "pulse-gold 2s ease-in-out infinite",
+        shimmer: "shimmer 2s linear infinite",
       },
     },
   },

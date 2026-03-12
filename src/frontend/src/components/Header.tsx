@@ -1,85 +1,226 @@
-import { AlertTriangle, Crown, Zap } from "lucide-react";
-import { motion } from "motion/react";
+import { ChevronDown, LogOut, Wallet } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { type WalletType, useICPWallet } from "../hooks/useICPWallet";
+import { usePremium } from "../hooks/usePremium";
 
-interface HeaderProps {
-  isPremium?: boolean;
-  onUnlockPro?: () => void;
+interface Props {
+  onUnlockPro: () => void;
 }
 
-export function Header({ isPremium = false, onUnlockPro }: HeaderProps) {
+function TsBoltIcon() {
   return (
-    <header
-      className="sticky top-0 z-50 border-b border-white/8 backdrop-blur-2xl"
-      style={{ background: "rgba(10,10,26,0.85)" }}
+    <svg
+      width="28"
+      height="28"
+      viewBox="0 0 28 28"
+      fill="none"
+      role="img"
+      aria-label="TokenSight AI logo"
     >
-      {/* Disclaimer Banner */}
-      <div className="bg-yellow-500/10 border-b border-yellow-500/20 px-4 py-2 flex items-center justify-center gap-2 text-xs text-yellow-300/80">
-        <AlertTriangle className="h-3 w-3 flex-shrink-0" />
-        <span>
-          AI predictions are for information only, not financial advice. DYOR.
-        </span>
-      </div>
+      <rect width="28" height="28" rx="6" fill="#D4AF37" />
+      <text
+        x="14"
+        y="19"
+        textAnchor="middle"
+        fontFamily="monospace"
+        fontWeight="bold"
+        fontSize="13"
+        fill="#080B14"
+      >
+        TS
+      </text>
+      <polygon
+        points="17,4 11,14 15,14 11,24 18,12 14,12"
+        fill="#080B14"
+        opacity="0.6"
+      />
+    </svg>
+  );
+}
 
-      <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
-        {/* Logo */}
-        <motion.div
-          initial={{ opacity: 0, x: -20 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: 0.5 }}
-          className="flex flex-col"
-        >
-          <div className="flex items-center gap-2">
-            <Zap
-              className="h-5 w-5 animate-pulse"
-              style={{ color: "#00D4FF" }}
-            />
+const WALLET_OPTIONS: {
+  type: WalletType;
+  label: string;
+  icon: string;
+  hint: string;
+}[] = [
+  {
+    type: "nns",
+    label: "Internet Identity",
+    icon: "🌐",
+    hint: "NNS / IC native",
+  },
+  { type: "plug", label: "Plug", icon: "🔌", hint: "Browser extension" },
+  {
+    type: "bitfinity",
+    label: "Bitfinity",
+    icon: "♾️",
+    hint: "Browser extension",
+  },
+  { type: "stoic", label: "Stoic", icon: "🧘", hint: "Web wallet" },
+  { type: "nfid", label: "NFID", icon: "🪪", hint: "Internet Identity" },
+];
+
+export function Header({ onUnlockPro }: Props) {
+  const { isPro, daysRemaining } = usePremium();
+  const { walletState, connectWallet, disconnect } = useICPWallet();
+  const [showWalletMenu, setShowWalletMenu] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close menu on outside click
+  useEffect(() => {
+    if (!showWalletMenu) return;
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node))
+        setShowWalletMenu(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showWalletMenu]);
+
+  const handleConnect = async (type: WalletType) => {
+    setShowWalletMenu(false);
+    await connectWallet(type);
+  };
+
+  return (
+    <header className="sticky top-0 z-40 border-b border-[#1C2333] bg-[#080B14]/95 backdrop-blur-md">
+      <div className="max-w-7xl mx-auto px-3 md:px-6 h-14 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 shrink-0">
+          <TsBoltIcon />
+          <div className="hidden sm:block">
             <span
-              className="text-lg sm:text-xl font-bold tracking-tight neon-blue-glow"
-              style={{ color: "#00D4FF" }}
+              className="font-mono font-bold text-sm tracking-widest"
+              style={{
+                background: "linear-gradient(90deg, #D4AF37, #FFD700, #D4AF37)",
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+                backgroundClip: "text",
+              }}
             >
-              Tokensight AI
+              TokenSight AI
+            </span>
+            <span className="text-[#00D4FF] text-[9px] font-mono ml-2 hidden md:inline">
+              PRO EDITION
             </span>
           </div>
-          <span className="text-xs text-white/40 ml-7">
-            Your AI Lens into the Crypto Future
+          <span className="sm:hidden font-mono font-bold text-xs text-[#D4AF37]">
+            TokenSight AI
           </span>
-        </motion.div>
+        </div>
 
-        {/* Pro button / badge */}
-        {isPremium ? (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold"
-            style={{
-              background:
-                "linear-gradient(135deg, rgba(255,215,0,0.15), rgba(185,242,255,0.1))",
-              border: "1px solid rgba(255,215,0,0.4)",
-              color: "#FFD700",
-            }}
-          >
-            <Crown className="h-3.5 w-3.5" />
-            PRO
-          </motion.div>
-        ) : (
-          <motion.button
-            type="button"
-            data-ocid="header.unlock_button"
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.5 }}
-            onClick={onUnlockPro}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold text-black transition-all hover:scale-105 active:scale-95"
-            style={{
-              background: "linear-gradient(135deg, #FFD700, #FFA500)",
-              boxShadow: "0 0 15px rgba(255,215,0,0.3)",
-            }}
-          >
-            <Crown className="h-3.5 w-3.5" />
-            Unlock Pro
-          </motion.button>
-        )}
+        <div className="flex items-center gap-2">
+          {isPro && (
+            <div
+              data-ocid="header.pro_badge"
+              className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-mono font-bold"
+              style={{
+                background: "#00FF8820",
+                border: "1px solid #00FF8860",
+                color: "#00FF88",
+              }}
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-[#00FF88] animate-pulse" />
+              PRO {daysRemaining && `• ${daysRemaining}d left`}
+            </div>
+          )}
+          {!isPro && (
+            <button
+              type="button"
+              data-ocid="header.unlock_pro_button"
+              onClick={onUnlockPro}
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-mono font-bold transition-all hover:scale-105"
+              style={{
+                background: "linear-gradient(135deg, #D4AF37, #FFD700)",
+                color: "#080B14",
+              }}
+            >
+              ⚡ Unlock Pro
+            </button>
+          )}
+
+          <div className="relative" ref={menuRef}>
+            {walletState.connected ? (
+              <div className="flex items-center gap-1.5">
+                <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-[#1C2333] bg-[#0D1117] text-xs font-mono">
+                  <Wallet size={11} className="text-[#D4AF37]" />
+                  <span className="text-gray-300">
+                    {walletState.balanceICP !== null
+                      ? `${walletState.balanceICP.toFixed(3)} ICP`
+                      : "Connected"}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  data-ocid="header.disconnect_wallet_button"
+                  onClick={disconnect}
+                  className="p-1.5 rounded-lg border border-[#1C2333] bg-[#0D1117] hover:border-[#FF3B5C]/40 transition-colors"
+                  title="Disconnect wallet"
+                >
+                  <LogOut
+                    size={12}
+                    className="text-gray-400 hover:text-[#FF3B5C]"
+                  />
+                </button>
+              </div>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  data-ocid="header.connect_wallet_button"
+                  onClick={() => setShowWalletMenu(!showWalletMenu)}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[#1C2333] bg-[#0D1117] text-xs font-mono hover:border-[#D4AF37]/40 transition-colors"
+                >
+                  <Wallet size={11} className="text-[#D4AF37]" />
+                  <span className="text-gray-300 hidden sm:inline">
+                    Connect
+                  </span>
+                  <ChevronDown size={10} className="text-gray-500" />
+                </button>
+                {showWalletMenu && (
+                  <div
+                    data-ocid="header.wallet_dropdown_menu"
+                    className="absolute right-0 top-full mt-1 bg-[#0D1117] border border-[#1C2333] rounded-lg shadow-xl z-50 min-w-[200px]"
+                  >
+                    <p className="px-3 pt-2.5 pb-1 text-[10px] font-mono text-gray-600 uppercase tracking-wider border-b border-[#1C2333]">
+                      Select Wallet
+                    </p>
+                    {WALLET_OPTIONS.map((w, idx) => (
+                      <button
+                        type="button"
+                        key={w.type}
+                        data-ocid={`header.${w.type}_wallet_button`}
+                        onClick={() => handleConnect(w.type)}
+                        className={`w-full text-left px-3 py-2.5 text-xs font-mono text-gray-300 hover:bg-[#1C2333] hover:text-white transition-colors flex items-center gap-2.5 ${
+                          idx === WALLET_OPTIONS.length - 1
+                            ? "rounded-b-lg"
+                            : ""
+                        }`}
+                      >
+                        <span className="text-base">{w.icon}</span>
+                        <div className="flex-1">
+                          <p className="text-white text-xs font-medium">
+                            {w.label}
+                          </p>
+                          <p className="text-gray-600 text-[10px]">{w.hint}</p>
+                        </div>
+                        <span className="text-[10px] text-gray-600">→</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
       </div>
+      {walletState.error && !walletState.connected && (
+        <div className="bg-[#0D1117] border-t border-[#FF3B5C]/20 px-4 py-1.5">
+          <p className="text-[#FF3B5C] text-[11px] font-mono text-center">
+            {walletState.error}
+          </p>
+        </div>
+      )}
     </header>
   );
 }
