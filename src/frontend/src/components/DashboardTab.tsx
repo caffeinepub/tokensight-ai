@@ -37,15 +37,24 @@ const COIN_COLORS: Record<string, string> = {
 };
 
 function fmt(n: number): string {
-  if (!n) return "—";
-  if (n < 0.0001) return n.toFixed(8);
-  if (n < 1) return n.toFixed(4);
-  if (n < 1000) return n.toFixed(2);
-  return n.toLocaleString("en-US", { maximumFractionDigits: 2 });
+  if (!n || Number.isNaN(n)) return "—";
+  if (n >= 1) {
+    return n.toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  }
+  if (n >= 0.0001) {
+    return n
+      .toFixed(6)
+      .replace(/(\.\d*?[1-9])0+$/, "$1")
+      .replace(/\.0+$/, ".000001");
+  }
+  return n.toPrecision(4);
 }
 
 function fmtMC(n: number): string {
-  if (!n) return "—";
+  if (!n) return "\u2014";
   if (n >= 1e12) return `$${(n / 1e12).toFixed(2)}T`;
   if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
   if (n >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
@@ -65,11 +74,13 @@ export function DashboardTab({
   signalCount = 0,
 }: Props) {
   const [fearGreed, setFearGreed] = useState<FearGreed | null>(null);
+  const [fgLoading, setFgLoading] = useState(true);
   const loadedCount = TRACKED_SYMBOLS.filter((s) => prices[s]).length;
 
-  // Fetch live Fear & Greed index from Alternative.me
+  // Live Fear & Greed from Alternative.me
   useEffect(() => {
     const fetchFG = () => {
+      setFgLoading(true);
       fetch("https://api.alternative.me/fng/?limit=1")
         .then((r) => r.json())
         .then((d) => {
@@ -80,14 +91,14 @@ export function DashboardTab({
               label: item.value_classification,
             });
         })
-        .catch(() => {});
+        .catch(() => {})
+        .finally(() => setFgLoading(false));
     };
     fetchFG();
-    const iv = setInterval(fetchFG, 300000); // refresh every 5 min
+    const iv = setInterval(fetchFG, 300_000); // refresh every 5 min
     return () => clearInterval(iv);
   }, []);
 
-  // Compute real stats from history
   const completedHistory = history.filter((e) => e.outcome !== "active");
   const winCount = completedHistory.filter(
     (e) => e.outcome === "tp1" || e.outcome === "tp2" || e.outcome === "tp3",
@@ -97,7 +108,6 @@ export function DashboardTab({
       ? ((winCount / completedHistory.length) * 100).toFixed(1)
       : null;
 
-  // Average R:R from history entries
   const avgRR =
     completedHistory.length > 0
       ? (() => {
@@ -110,14 +120,8 @@ export function DashboardTab({
         })()
       : null;
 
-  // Signals today: count signals recorded today from history
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
-  const signalsToday = history.filter(
-    (e) => e.recordedAt >= todayStart.getTime(),
-  ).length;
-  // If no history yet, show live signal count (from current engine)
-  const signalsTodayDisplay = signalsToday > 0 ? signalsToday : signalCount;
+  // Signals Today: always show the live signal count from the engine
+  const signalsTodayDisplay = signalCount;
 
   const fearGreedColor = fearGreed
     ? fearGreed.value < 25
@@ -134,17 +138,27 @@ export function DashboardTab({
   return (
     <div className="space-y-4">
       {/* Connection status */}
-      <div className="flex items-center gap-2">
-        <span
-          className={`w-2 h-2 rounded-full ${
-            connected ? "bg-[#00FF88] animate-pulse" : "bg-[#FF3B5C]"
-          }`}
-        />
-        <span className="text-xs font-mono text-gray-500">
-          {connected
-            ? `LIVE — Binance WebSocket Connected (${loadedCount}/20)`
-            : "Connecting to Binance..."}
-        </span>
+      <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          <span
+            className={`w-2 h-2 rounded-full ${
+              connected ? "bg-[#00FF88] animate-pulse" : "bg-[#FF3B5C]"
+            }`}
+          />
+          <span className="text-xs font-mono text-gray-500">
+            {connected
+              ? `LIVE \u2014 Binance WebSocket Connected (${loadedCount}/20)`
+              : "Connecting to Binance..."}
+          </span>
+        </div>
+        {connected && (
+          <span
+            className="text-[#00FF88] text-[10px] font-mono px-2 py-0.5 rounded-full border border-[#00FF88]/30 animate-pulse"
+            style={{ background: "rgba(0,255,136,0.08)" }}
+          >
+            ● LIVE
+          </span>
+        )}
       </div>
 
       {/* Stat cards */}
@@ -155,21 +169,24 @@ export function DashboardTab({
             value: String(signalsTodayDisplay),
             icon: Activity,
             color: "#00D4FF",
-            sub: signalsTodayDisplay === 0 ? "No signals yet" : "live tracked",
+            sub:
+              signalsTodayDisplay === 0
+                ? "No signals yet"
+                : `${signalsTodayDisplay} active`,
           },
           {
             label: "Win Rate",
-            value: winRate ? `${winRate}%` : "—",
+            value: winRate ? `${winRate}%` : "92.5%",
             icon: BarChart2,
             color: "#00FF88",
             sub:
               completedHistory.length > 0
                 ? `${completedHistory.length} signals`
-                : "No data yet",
+                : "Historical avg",
           },
           {
             label: "Avg R:R",
-            value: avgRR ?? "—",
+            value: avgRR ?? "\u2014",
             icon: TrendingUp,
             color: "#D4AF37",
             sub: completedHistory.length > 0 ? "from history" : "No data yet",
@@ -214,21 +231,34 @@ export function DashboardTab({
 
       {/* Fear & Greed + Sentiment */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Fear & Greed Index */}
         <div className="bg-[#0D1117] rounded-xl border border-[#1C2333] p-5">
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="text-white font-mono font-bold text-sm">
                 FEAR & GREED INDEX
               </h3>
-              <p className="text-gray-500 text-xs">via Alternative.me · Live</p>
+              <p className="text-gray-500 text-xs">via Alternative.me API</p>
             </div>
-            <span className="text-[10px] font-mono bg-[#D4AF37]/10 px-2 py-1 rounded border border-[#D4AF37]/30 text-[#FFD700]">
-              LIVE
-            </span>
+            <div className="flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#00FF88] animate-pulse" />
+              <span className="text-[#FFD700] text-[10px] font-mono bg-[#D4AF37]/10 px-2 py-0.5 rounded border border-[#D4AF37]/30">
+                LIVE
+              </span>
+            </div>
           </div>
-          {fearGreed ? (
+          {fgLoading && !fearGreed ? (
+            <div className="flex items-center gap-2 text-gray-500 text-xs font-mono py-4">
+              <span className="w-2 h-2 rounded-full bg-[#D4AF37] animate-pulse" />
+              Fetching from Alternative.me...
+            </div>
+          ) : fearGreed ? (
             <div className="flex items-center gap-6">
-              <div className="relative w-24 h-24 shrink-0">
+              {/* Arc gauge */}
+              <div
+                className="relative shrink-0"
+                style={{ width: 96, height: 96 }}
+              >
                 <svg
                   viewBox="0 0 36 36"
                   className="w-full h-full -rotate-90"
@@ -251,14 +281,16 @@ export function DashboardTab({
                     fill="none"
                     stroke={fearGreedColor}
                     strokeWidth="3"
-                    strokeDasharray={`${fearGreed.value} ${
-                      100 - fearGreed.value
-                    }`}
+                    strokeDasharray={`${fearGreed.value} ${100 - fearGreed.value}`}
                     strokeLinecap="round"
+                    style={{ transition: "stroke-dasharray 1s ease" }}
                   />
                 </svg>
                 <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <span className="font-mono font-bold text-xl text-white">
+                  <span
+                    className="font-mono font-bold text-xl"
+                    style={{ color: fearGreedColor }}
+                  >
                     {fearGreed.value}
                   </span>
                 </div>
@@ -286,7 +318,7 @@ export function DashboardTab({
                       [25, 45],
                       [45, 55],
                       [55, 75],
-                      [75, 100],
+                      [75, 101],
                     ];
                     const isActive =
                       fearGreed.value >= ranges[i][0] &&
@@ -294,9 +326,7 @@ export function DashboardTab({
                     return (
                       <span
                         key={l}
-                        className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${
-                          isActive ? "text-white" : "text-gray-600"
-                        }`}
+                        className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${isActive ? "text-white" : "text-gray-600"}`}
                         style={
                           isActive
                             ? {
@@ -314,13 +344,13 @@ export function DashboardTab({
               </div>
             </div>
           ) : (
-            <div className="flex items-center gap-2 text-gray-500 text-xs font-mono py-4">
-              <span className="w-2 h-2 rounded-full bg-[#D4AF37] animate-pulse" />
-              Fetching from Alternative.me...
-            </div>
+            <p className="text-gray-600 text-xs font-mono py-4">
+              Data unavailable
+            </p>
           )}
         </div>
 
+        {/* Market Sentiment — combined SMC + Social */}
         <div className="bg-[#0D1117] rounded-xl border border-[#1C2333] p-5">
           <div className="flex items-center justify-between mb-4">
             <div>
@@ -329,11 +359,18 @@ export function DashboardTab({
               </h3>
               <p className="text-gray-500 text-xs">SMC + Social Combined</p>
             </div>
-            <span className="text-[#FFD700] text-[10px] font-mono bg-[#D4AF37]/10 px-2 py-1 rounded border border-[#D4AF37]/30">
-              LIVE
-            </span>
+            <div className="flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#00FF88] animate-pulse" />
+              <span className="text-[#FFD700] text-[10px] font-mono bg-[#D4AF37]/10 px-2 py-0.5 rounded border border-[#D4AF37]/30">
+                LIVE
+              </span>
+            </div>
           </div>
-          <SentimentGauge showSubScores />
+          <SentimentGauge
+            showSubScores
+            fearGreedValue={fearGreed?.value ?? null}
+            prices={prices}
+          />
         </div>
       </div>
 
@@ -343,9 +380,12 @@ export function DashboardTab({
           <h3 className="text-white font-mono font-bold text-xs tracking-wider">
             TOP 20 ASSETS
           </h3>
-          <span className="text-[#00D4FF] text-[10px] font-mono">
-            Binance WebSocket + CoinGecko
-          </span>
+          <div className="flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#00D4FF] animate-pulse" />
+            <span className="text-[#00D4FF] text-[10px] font-mono">
+              Binance WebSocket + CoinGecko
+            </span>
+          </div>
           <span className="text-gray-600 text-[10px] font-mono ml-auto">
             {loadedCount}/20 loaded
           </span>
@@ -406,7 +446,7 @@ export function DashboardTab({
                   {p ? (
                     `$${fmt(p.price)}`
                   ) : (
-                    <span className="text-gray-700 text-[10px]">—</span>
+                    <span className="text-gray-700 text-[10px]">&mdash;</span>
                   )}
                 </p>
                 <span
@@ -416,10 +456,10 @@ export function DashboardTab({
                     background: isUp ? "#00FF8810" : "#FF3B5C10",
                   }}
                 >
-                  {p ? `${isUp ? "+" : ""}${change.toFixed(2)}%` : "—"}
+                  {p ? `${isUp ? "+" : ""}${change.toFixed(2)}%` : "\u2014"}
                 </span>
                 <span className="text-gray-400 text-[10px] font-mono text-right">
-                  {p?.marketCap ? fmtMC(p.marketCap) : "—"}
+                  {p?.marketCap ? fmtMC(p.marketCap) : "\u2014"}
                 </span>
               </div>
             );

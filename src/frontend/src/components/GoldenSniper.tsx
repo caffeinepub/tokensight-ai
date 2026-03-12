@@ -8,6 +8,7 @@ interface Props {
   onUnlock: () => void;
   scanningForGoldenSniper?: boolean;
   historyEntry?: HistoryEntry | null;
+  isAdmin?: boolean;
 }
 
 function fmt(n: number): string {
@@ -17,13 +18,22 @@ function fmt(n: number): string {
   return n.toLocaleString("en-US", { maximumFractionDigits: 2 });
 }
 
+/**
+ * Accurate relative time that does NOT reset to "just now" on page refresh.
+ * Shows: "Xm ago" or "Xh Ym ago" based on stored createdAt timestamp.
+ */
 function relativeTime(ts: number): string {
-  const mins = Math.floor((Date.now() - ts) / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
+  const totalMins = Math.floor((Date.now() - ts) / 60000);
+  if (totalMins < 1) return "< 1m ago";
+  if (totalMins < 60) return `${totalMins}m ago`;
+  const hrs = Math.floor(totalMins / 60);
+  const mins = totalMins % 60;
+  if (hrs < 24) {
+    return mins > 0 ? `${hrs}h ${mins}m ago` : `${hrs}h ago`;
+  }
+  const days = Math.floor(hrs / 24);
+  const remHrs = hrs % 24;
+  return remHrs > 0 ? `${days}d ${remHrs}h ago` : `${days}d ago`;
 }
 
 const COIN_COLORS: Record<string, string> = {
@@ -59,7 +69,6 @@ function ScanningState() {
             className="w-16 h-16 rounded-full border-2 border-[#D4AF37]/20 relative"
             style={{ animation: "scanPulse 2s ease-in-out infinite" }}
           >
-            {/* Spinning radar arm */}
             <div
               className="absolute inset-0 rounded-full"
               style={{
@@ -68,7 +77,6 @@ function ScanningState() {
                 animation: "radar 2s linear infinite",
               }}
             />
-            {/* Center dot */}
             <div
               className="absolute top-1/2 left-1/2 w-2 h-2 rounded-full bg-[#D4AF37] -translate-x-1/2 -translate-y-1/2"
               style={{ animation: "scanPulse 1s ease-in-out infinite" }}
@@ -76,7 +84,6 @@ function ScanningState() {
           </div>
         </div>
 
-        {/* Scan text */}
         <p
           className="text-[#D4AF37] font-mono font-bold text-sm tracking-widest mb-1"
           style={{ animation: "scanPulse 1.8s ease-in-out infinite" }}
@@ -87,7 +94,6 @@ function ScanningState() {
           Monitoring 20 assets for 95%+ confluence setup
         </p>
 
-        {/* Scan line animation */}
         <div className="relative h-0.5 bg-[#1C2333] rounded-full overflow-hidden mb-4 mx-8">
           <div
             className="absolute top-0 left-0 h-full w-1/4 rounded-full"
@@ -99,7 +105,6 @@ function ScanningState() {
           />
         </div>
 
-        {/* Condition checks */}
         <div className="flex justify-center gap-4 flex-wrap">
           {SCAN_CHECKS.map((check, i) => (
             <div key={check.label} className="flex items-center gap-1.5">
@@ -128,8 +133,8 @@ export function GoldenSniper({
   onUnlock,
   scanningForGoldenSniper,
   historyEntry,
+  isAdmin,
 }: Props) {
-  // STRICT: only render the active signal card if confidence > 95 AND winRate > 90
   const isEligible =
     signal !== null && signal.confidence > 95 && signal.winRate > 90;
 
@@ -148,7 +153,6 @@ export function GoldenSniper({
           "linear-gradient(135deg, #0D1117 0%, #12100A 50%, #0D1117 100%)",
       }}
     >
-      {/* Gold shimmer top border */}
       <div
         className="h-0.5 w-full"
         style={{
@@ -158,7 +162,6 @@ export function GoldenSniper({
       />
 
       <div className="p-4 md:p-6">
-        {/* Header */}
         <div className="flex items-center gap-2 mb-2 flex-wrap">
           <Crown className="text-[#FFD700]" size={20} />
           <span className="text-[#FFD700] font-mono font-bold text-sm tracking-widest">
@@ -187,11 +190,41 @@ export function GoldenSniper({
           )}
         </div>
 
-        {!isEligible ? (
+        {isAdmin ? (
+          <ScanningState />
+        ) : !isEligible ? (
           scanningForGoldenSniper ? (
-            <ScanningState />
+            !isPro ? (
+              <div className="relative">
+                <div className="opacity-30 blur-sm select-none pointer-events-none">
+                  <ScanningState />
+                </div>
+                <div
+                  className="absolute inset-0 flex flex-col items-center justify-center rounded-lg"
+                  style={{ background: "rgba(8,11,20,0.7)" }}
+                >
+                  <Lock className="text-[#D4AF37] mb-2" size={28} />
+                  <p className="text-[#FFD700] font-bold text-sm mb-3">
+                    Unlock Golden Sniper
+                  </p>
+                  <button
+                    type="button"
+                    data-ocid="signals.golden_sniper_unlock_button"
+                    onClick={onUnlock}
+                    className="px-6 py-2 rounded-full text-sm font-mono font-bold transition-all hover:scale-105"
+                    style={{
+                      background: "linear-gradient(135deg, #D4AF37, #FFD700)",
+                      color: "#080B14",
+                    }}
+                  >
+                    🔒 Unlock Golden Sniper
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <ScanningState />
+            )
           ) : (
-            // Not connected — static awaiting message
             <div className="text-center py-6">
               <p className="text-gray-500 font-mono text-sm">
                 🎯 No Golden Sniper setup today — awaiting 95%+ confluence
@@ -204,12 +237,10 @@ export function GoldenSniper({
           )
         ) : (
           <>
-            {/* Sub-heading */}
             <p className="text-[#D4AF37]/60 font-mono text-[11px] mb-4">
               Confidence &gt;95% · Win-Rate &gt;90%
             </p>
 
-            {/* Confirmation pills */}
             <div className="flex gap-2 mb-3 flex-wrap">
               {["OB Confirmed ✓", "FVG Fill ✓", "Liquidity Sweep ✓"].map(
                 (p) => (
@@ -228,7 +259,6 @@ export function GoldenSniper({
               )}
             </div>
 
-            {/* TP Hit status pills (only when pro and historyEntry available) */}
             {isPro && historyEntry && (
               <div className="flex gap-2 mb-4 flex-wrap">
                 {historyEntry.tp1HitAt && (
@@ -272,7 +302,6 @@ export function GoldenSniper({
 
             {!isPro ? (
               <div className="relative">
-                {/* Blurred content */}
                 <div className="blur-sm select-none pointer-events-none">
                   <div className="flex items-center gap-3 mb-3">
                     <div
@@ -306,7 +335,6 @@ export function GoldenSniper({
                     ))}
                   </div>
                 </div>
-                {/* Lock overlay */}
                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#080B14]/60 rounded-lg">
                   <Lock className="text-[#D4AF37] mb-2" size={28} />
                   <p className="text-[#FFD700] font-bold text-sm mb-3">

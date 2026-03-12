@@ -133,6 +133,16 @@ export default function App() {
     <ErrorBoundary>
       <div className="min-h-screen bg-[#080B14] text-white">
         <Header onUnlockPro={() => setShowModal(true)} />
+        {walletState.connecting && (
+          <div className="bg-[#D4AF37]/10 border-b border-[#D4AF37]/20 py-1.5 px-4 text-center flex items-center justify-center gap-2">
+            <span className="w-3 h-3 rounded-full border-2 border-[#D4AF37] border-t-transparent animate-spin inline-block" />
+            <span className="text-[#D4AF37] font-mono text-[10px]">
+              {walletState.walletType
+                ? "Connecting wallet..."
+                : "Refreshing live data..."}
+            </span>
+          </div>
+        )}
         <WhaleTicker />
 
         {isAdminAccess && (
@@ -192,6 +202,7 @@ export default function App() {
               onUnlock={() => setShowModal(true)}
               scanningForGoldenSniper={scanningForGoldenSniper}
               goldenHistoryEntry={goldenHistoryEntry}
+              isAdmin={isAdminAccess}
             />
           )}
           {activeTab === "social" && (

@@ -53,31 +53,55 @@ const WALLET_OPTIONS: {
   {
     type: "nns",
     label: "Internet Identity (NNS)",
-    icon: "🌐",
-    hint: "IC native — secure & anonymous",
+    icon: "\uD83C\uDF10",
+    hint: "IC native \u2014 secure & anonymous",
   },
   {
     type: "nfid",
     label: "NFID (Google Login)",
-    icon: "🪪",
+    icon: "\uD83E\uDEAA",
     hint: "Sign in with Google via NFID",
   },
   {
     type: "plug",
     label: "Plug Wallet",
-    icon: "🔌",
+    icon: "\uD83D\uDD0C",
+    hint: "Browser extension wallet",
+  },
+  {
+    type: "stoic",
+    label: "Stoic Wallet",
+    icon: "\uD83E\uDDD8",
+    hint: "Web-based ICP wallet",
+  },
+  {
+    type: "bitfinity",
+    label: "Bitfinity Wallet",
+    icon: "\u267E\uFE0F",
     hint: "Browser extension wallet",
   },
 ];
 
 export function Header({ onUnlockPro }: Props) {
   const { isPro, daysRemaining } = usePremium();
-  const { walletState, connectWallet, disconnect } = useICPWallet();
+  const { walletState, connectWallet, connectManualPrincipal, disconnect } =
+    useICPWallet();
   const [showWalletModal, setShowWalletModal] = useState(false);
+  const [manualPrincipal, setManualPrincipal] = useState("");
+  const [showManualEntry, setShowManualEntry] = useState(false);
 
   const handleConnect = async (type: WalletType) => {
     setShowWalletModal(false);
     await connectWallet(type);
+  };
+
+  const handleManualSubmit = () => {
+    if (manualPrincipal.trim()) {
+      connectManualPrincipal(manualPrincipal.trim());
+      setManualPrincipal("");
+      setShowManualEntry(false);
+      setShowWalletModal(false);
+    }
   };
 
   const walletLabel =
@@ -87,7 +111,11 @@ export function Header({ onUnlockPro }: Props) {
         ? "NFID"
         : walletState.walletType === "plug"
           ? "Plug"
-          : "Connected";
+          : walletState.walletType === "stoic"
+            ? "Stoic"
+            : walletState.walletType === "bitfinity"
+              ? "Bitfinity"
+              : "Connected";
 
   return (
     <>
@@ -129,7 +157,7 @@ export function Header({ onUnlockPro }: Props) {
                 }}
               >
                 <span className="w-1.5 h-1.5 rounded-full bg-[#00FF88] animate-pulse" />
-                PRO {daysRemaining && `• ${daysRemaining}d left`}
+                PRO {daysRemaining && `\u2022 ${daysRemaining}d left`}
               </div>
             )}
             {!isPro && (
@@ -143,7 +171,7 @@ export function Header({ onUnlockPro }: Props) {
                   color: "#080B14",
                 }}
               >
-                ⚡ Unlock Pro
+                \u26A1 Unlock Pro
               </button>
             )}
 
@@ -186,17 +214,57 @@ export function Header({ onUnlockPro }: Props) {
             )}
           </div>
         </div>
-        {walletState.error && !walletState.connected && (
-          <div className="bg-[#0D1117] border-t border-[#FF3B5C]/20 px-4 py-1.5">
-            <p className="text-[#FF3B5C] text-[11px] font-mono text-center">
-              {walletState.error}
+
+        {/* Popup-blocked banner */}
+        {walletState.popupBlocked && (
+          <div
+            data-ocid="header.popup_blocked_banner"
+            className="bg-[#FF9500]/10 border-t border-[#FF9500]/30 px-4 py-2"
+          >
+            <p className="text-[#FF9500] text-[11px] font-mono text-center">
+              Popup blocked?{" "}
+              <a
+                href={walletState.manualLoginUrl ?? "#"}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline font-bold hover:text-[#FFB800] transition-colors"
+              >
+                Click HERE to open manually
+              </a>
+              {" \u2014 or "}
+              <button
+                type="button"
+                className="underline font-bold hover:text-[#FFB800] transition-colors"
+                onClick={() => {
+                  setShowManualEntry(true);
+                  setShowWalletModal(true);
+                }}
+              >
+                enter Principal ID manually
+              </button>
             </p>
           </div>
         )}
+
+        {walletState.error &&
+          !walletState.connected &&
+          !walletState.popupBlocked && (
+            <div className="bg-[#0D1117] border-t border-[#FF3B5C]/20 px-4 py-1.5">
+              <p className="text-[#FF3B5C] text-[11px] font-mono text-center">
+                {walletState.error}
+              </p>
+            </div>
+          )}
       </header>
 
       {/* Wallet Selection Modal */}
-      <Dialog open={showWalletModal} onOpenChange={setShowWalletModal}>
+      <Dialog
+        open={showWalletModal}
+        onOpenChange={(o) => {
+          setShowWalletModal(o);
+          if (!o) setShowManualEntry(false);
+        }}
+      >
         <DialogContent
           data-ocid="wallet_modal.dialog"
           className="max-w-sm border-[#1C2333] bg-[#0D1117] text-white p-0"
@@ -219,34 +287,102 @@ export function Header({ onUnlockPro }: Props) {
               </p>
             </DialogHeader>
 
-            <div className="flex flex-col gap-2">
-              {WALLET_OPTIONS.map((w) => (
+            {showManualEntry ? (
+              <div>
+                <p className="text-gray-400 text-xs font-mono mb-1">
+                  Enter your Principal ID manually:
+                </p>
+                <p className="text-gray-600 text-[10px] font-mono mb-3">
+                  For admin or pro users who cannot use a popup flow.
+                </p>
+                <input
+                  data-ocid="wallet_modal.manual_principal_input"
+                  type="text"
+                  value={manualPrincipal}
+                  onChange={(e) => setManualPrincipal(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleManualSubmit()}
+                  placeholder="xxxxx-xxxxx-xxxxx-xxxxx-xxx"
+                  className="w-full bg-[#080B14] border border-[#1C2333] rounded-lg px-3 py-2 text-xs font-mono text-white placeholder-gray-600 focus:outline-none focus:border-[#D4AF37]/60 mb-3"
+                />
                 <button
                   type="button"
-                  key={w.type}
-                  data-ocid={`wallet_modal.${w.type}_button`}
-                  onClick={() => void handleConnect(w.type)}
-                  className="flex items-center gap-3 px-4 py-3.5 rounded-xl border border-[#1C2333] bg-[#080B14] hover:border-[#D4AF37]/40 hover:bg-[#D4AF37]/5 transition-all text-left group"
+                  data-ocid="wallet_modal.submit_principal_button"
+                  onClick={handleManualSubmit}
+                  disabled={!manualPrincipal.trim()}
+                  className="w-full py-2.5 rounded-xl font-mono font-bold text-sm transition-all disabled:opacity-50"
+                  style={{
+                    background: "linear-gradient(135deg, #D4AF37, #FFD700)",
+                    color: "#080B14",
+                  }}
                 >
-                  <span className="text-2xl">{w.icon}</span>
-                  <div className="flex-1">
-                    <p className="text-white text-sm font-mono font-medium group-hover:text-[#FFD700] transition-colors">
-                      {w.label}
-                    </p>
-                    <p className="text-gray-600 text-[11px] font-mono mt-0.5">
-                      {w.hint}
-                    </p>
-                  </div>
-                  <span className="text-gray-600 group-hover:text-[#D4AF37] transition-colors text-sm">
-                    →
-                  </span>
+                  Connect with Principal ID
                 </button>
-              ))}
-            </div>
+                <button
+                  type="button"
+                  className="w-full mt-2 text-xs text-gray-500 font-mono hover:text-gray-300 transition-colors"
+                  onClick={() => setShowManualEntry(false)}
+                >
+                  \u2190 Back to wallet options
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="flex flex-col gap-2">
+                  {WALLET_OPTIONS.map((w) => (
+                    <button
+                      type="button"
+                      key={w.type}
+                      data-ocid={`wallet_modal.${w.type}_button`}
+                      onClick={() => void handleConnect(w.type)}
+                      className="flex items-center gap-3 px-4 py-3.5 rounded-xl border border-[#1C2333] bg-[#080B14] hover:border-[#D4AF37]/40 hover:bg-[#D4AF37]/5 transition-all text-left group"
+                    >
+                      <span className="text-2xl">{w.icon}</span>
+                      <div className="flex-1">
+                        <p className="text-white text-sm font-mono font-medium group-hover:text-[#FFD700] transition-colors">
+                          {w.label}
+                        </p>
+                        <p className="text-gray-600 text-[11px] font-mono mt-0.5">
+                          {w.hint}
+                        </p>
+                      </div>
+                      <span className="text-gray-600 group-hover:text-[#D4AF37] transition-colors text-sm">
+                        \u2192
+                      </span>
+                    </button>
+                  ))}
+                </div>
 
-            <p className="text-gray-700 text-[10px] font-mono text-center mt-4">
-              Your wallet is used for identity verification and payments only.
-            </p>
+                {/* Trouble connecting hint */}
+                <div className="mt-4 rounded-xl border border-[#FF9500]/20 bg-[#FF9500]/5 px-3 py-2.5">
+                  <p className="text-[#FF9500] text-[11px] font-mono">
+                    \uD83D\uDCA1 <strong>Trouble connecting?</strong> Try NFID
+                    (Google Login) or disable popup blockers in your browser
+                    settings.
+                  </p>
+                </div>
+
+                {/* Manual entry + Telegram */}
+                <div className="flex items-center justify-between mt-3 gap-2">
+                  <button
+                    type="button"
+                    data-ocid="wallet_modal.manual_entry_button"
+                    onClick={() => setShowManualEntry(true)}
+                    className="text-[10px] text-gray-600 font-mono hover:text-gray-400 transition-colors underline"
+                  >
+                    Enter Principal ID manually
+                  </button>
+                  <a
+                    data-ocid="wallet_modal.telegram_support_link"
+                    href="https://t.me/TokenSightAI"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-[#00D4FF] text-[11px] font-mono font-bold hover:text-[#00AAFF] transition-colors"
+                  >
+                    <span>\u2708\uFE0F</span> Telegram Support
+                  </a>
+                </div>
+              </>
+            )}
           </div>
         </DialogContent>
       </Dialog>

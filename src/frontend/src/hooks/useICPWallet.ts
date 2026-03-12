@@ -10,6 +10,8 @@ export interface WalletState {
   connecting: boolean;
   paying: boolean;
   error: string | null;
+  popupBlocked: boolean;
+  manualLoginUrl: string | null;
 }
 
 const INITIAL_STATE: WalletState = {
@@ -20,14 +22,18 @@ const INITIAL_STATE: WalletState = {
   connecting: false,
   paying: false,
   error: null,
+  popupBlocked: false,
+  manualLoginUrl: null,
 };
 
 const LS_SESSION_KEY = "ts_wallet_session";
+const SESSION_MAX_TTL = BigInt(7 * 24 * 60 * 60) * BigInt(1_000_000_000);
 
 interface StoredSession {
   walletType: WalletType;
   principal: string;
   balanceICP: number | null;
+  expiresAt: number;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -50,9 +56,13 @@ async function getPlugPrincipal(): Promise<string | null> {
   }
 }
 
-function saveSession(session: StoredSession) {
+function saveSession(session: Omit<StoredSession, "expiresAt">) {
   try {
-    localStorage.setItem(LS_SESSION_KEY, JSON.stringify(session));
+    const stored: StoredSession = {
+      ...session,
+      expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
+    };
+    localStorage.setItem(LS_SESSION_KEY, JSON.stringify(stored));
   } catch {}
 }
 
@@ -62,21 +72,89 @@ function clearSession() {
   } catch {}
 }
 
+function getStoredSession(): StoredSession | null {
+  try {
+    const raw = localStorage.getItem(LS_SESSION_KEY);
+    if (!raw) return null;
+    const session: StoredSession = JSON.parse(raw);
+    if (session.expiresAt && Date.now() > session.expiresAt) {
+      clearSession();
+      return null;
+    }
+    return session;
+  } catch {
+    clearSession();
+    return null;
+  }
+}
+
+/** Manual Window Handshake — detect popup blocker before calling auth flow */
+function tryOpenPopup(url: string): { popup: Window | null; blocked: boolean } {
+  const features =
+    "toolbar=0,location=0,menubar=0,width=525,height=600,left=100,top=100";
+  let popup: Window | null = null;
+  try {
+    popup = window.open(url, "_blank", features);
+  } catch {
+    popup = null;
+  }
+  const blocked = !popup || popup.closed || typeof popup.closed === "undefined";
+  return { popup, blocked };
+}
+
 export function useICPWallet() {
   const [walletState, setWalletState] = useState<WalletState>(INITIAL_STATE);
 
-  // Restore session on mount
   useEffect(() => {
     let cancelled = false;
-    const raw = localStorage.getItem(LS_SESSION_KEY);
-    if (!raw) return;
-    let session: StoredSession;
-    try {
-      session = JSON.parse(raw) as StoredSession;
-    } catch {
-      clearSession();
-      return;
+
+    // Check if user just returned from a redirect-based auth flow
+    const pendingWalletType = localStorage.getItem(
+      "ts_pending_wallet_type",
+    ) as WalletType | null;
+    if (pendingWalletType === "nns" || pendingWalletType === "nfid") {
+      import("@dfinity/auth-client")
+        .then(({ AuthClient }) =>
+          AuthClient.create({
+            idleOptions: {
+              disableIdle: true,
+              disableDefaultIdleCallback: true,
+            },
+          }),
+        )
+        .then(async (client) => {
+          const isAuth = await client.isAuthenticated();
+          if (cancelled) return;
+          localStorage.removeItem("ts_pending_wallet_type");
+          if (isAuth) {
+            const identity = client.getIdentity();
+            const principal = identity.getPrincipal().toString();
+            saveSession({
+              walletType: pendingWalletType,
+              principal,
+              balanceICP: null,
+            });
+            setWalletState((p) => ({
+              ...p,
+              connected: true,
+              walletType: pendingWalletType,
+              principal,
+              balanceICP: null,
+              connecting: false,
+              error: null,
+              popupBlocked: false,
+              manualLoginUrl: null,
+            }));
+          }
+        })
+        .catch(() => localStorage.removeItem("ts_pending_wallet_type"));
+      return () => {
+        cancelled = true;
+      };
     }
+
+    const session = getStoredSession();
+    if (!session) return;
 
     if (session.walletType === "nns" || session.walletType === "nfid") {
       import("@dfinity/auth-client")
@@ -130,20 +208,31 @@ export function useICPWallet() {
       } else {
         clearSession();
       }
+    } else if (
+      session.walletType === "bitfinity" ||
+      session.walletType === "stoic"
+    ) {
+      setWalletState((p) => ({
+        ...p,
+        connected: true,
+        walletType: session.walletType,
+        principal: session.principal,
+        balanceICP: session.balanceICP,
+      }));
     }
-
     return () => {
       cancelled = true;
     };
   }, []);
 
   const connectWallet = useCallback(async (type: WalletType) => {
-    // Internet Identity (NNS) via AuthClient popup
     if (type === "nns") {
       setWalletState((p) => ({
         ...p,
         connecting: true,
         error: null,
+        popupBlocked: false,
+        manualLoginUrl: null,
         walletType: "nns",
       }));
       try {
@@ -151,11 +240,49 @@ export function useICPWallet() {
         const authClient = await AuthClient.create({
           idleOptions: { disableIdle: true, disableDefaultIdleCallback: true },
         });
+        const providerUrl = "https://identity.ic0.app";
+        const { blocked } = tryOpenPopup(providerUrl);
+        const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+        if (blocked || isMobile) {
+          // Use full-page redirect for mobile or when popup is blocked
+          localStorage.setItem("ts_pending_wallet_type", "nns");
+          authClient.login({
+            identityProvider: providerUrl,
+            maxTimeToLive: SESSION_MAX_TTL,
+            // No windowOpenerFeatures = full page redirect
+            onSuccess: () => {
+              const identity = authClient.getIdentity();
+              const principal = identity.getPrincipal().toString();
+              localStorage.removeItem("ts_pending_wallet_type");
+              saveSession({ walletType: "nns", principal, balanceICP: null });
+              setWalletState((p) => ({
+                ...p,
+                connected: true,
+                principal,
+                balanceICP: null,
+                connecting: false,
+                walletType: "nns",
+                error: null,
+                popupBlocked: false,
+                manualLoginUrl: null,
+              }));
+            },
+            onError: (err) => {
+              localStorage.removeItem("ts_pending_wallet_type");
+              setWalletState((p) => ({
+                ...p,
+                connecting: false,
+                error: err ?? "Login failed",
+                walletType: null,
+              }));
+            },
+          });
+          return;
+        }
         await new Promise<void>((resolve, reject) => {
           authClient.login({
-            identityProvider: "https://identity.ic0.app",
-            maxTimeToLive:
-              BigInt(24 * 60 * 60 * 1000 * 1000 * 1000) * BigInt(30),
+            identityProvider: providerUrl,
+            maxTimeToLive: SESSION_MAX_TTL,
             windowOpenerFeatures:
               "toolbar=0,location=0,menubar=0,width=525,height=600,left=100,top=100",
             onSuccess: () => resolve(),
@@ -174,25 +301,34 @@ export function useICPWallet() {
           connecting: false,
           walletType: "nns",
           error: null,
+          popupBlocked: false,
+          manualLoginUrl: null,
         }));
       } catch (e) {
         const msg = e instanceof Error ? e.message : "NNS login failed";
+        const isBlocked =
+          msg.toLowerCase().includes("closed") ||
+          msg.toLowerCase().includes("blocked") ||
+          msg.toLowerCase().includes("popup");
         setWalletState((p) => ({
           ...p,
           connecting: false,
-          error: msg,
+          error: isBlocked ? null : msg,
+          popupBlocked: isBlocked,
+          manualLoginUrl: isBlocked ? "https://identity.ic0.app" : null,
           walletType: null,
         }));
       }
       return;
     }
 
-    // NFID (Google Login) via AuthClient with NFID identity provider
     if (type === "nfid") {
       setWalletState((p) => ({
         ...p,
         connecting: true,
         error: null,
+        popupBlocked: false,
+        manualLoginUrl: null,
         walletType: "nfid",
       }));
       try {
@@ -200,11 +336,50 @@ export function useICPWallet() {
         const authClient = await AuthClient.create({
           idleOptions: { disableIdle: true, disableDefaultIdleCallback: true },
         });
+        const providerUrl = "https://nfid.one/authenticate";
+        const { blocked } = tryOpenPopup(providerUrl);
+        const isMobileNfid = /Mobi|Android|iPhone|iPad/i.test(
+          navigator.userAgent,
+        );
+        if (blocked || isMobileNfid) {
+          // Use full-page redirect for mobile or when popup is blocked
+          localStorage.setItem("ts_pending_wallet_type", "nfid");
+          authClient.login({
+            identityProvider: providerUrl,
+            maxTimeToLive: SESSION_MAX_TTL,
+            onSuccess: () => {
+              const identity = authClient.getIdentity();
+              const principal = identity.getPrincipal().toString();
+              localStorage.removeItem("ts_pending_wallet_type");
+              saveSession({ walletType: "nfid", principal, balanceICP: null });
+              setWalletState((p) => ({
+                ...p,
+                connected: true,
+                principal,
+                balanceICP: null,
+                connecting: false,
+                walletType: "nfid",
+                error: null,
+                popupBlocked: false,
+                manualLoginUrl: null,
+              }));
+            },
+            onError: (err) => {
+              localStorage.removeItem("ts_pending_wallet_type");
+              setWalletState((p) => ({
+                ...p,
+                connecting: false,
+                error: err ?? "Login failed",
+                walletType: null,
+              }));
+            },
+          });
+          return;
+        }
         await new Promise<void>((resolve, reject) => {
           authClient.login({
-            identityProvider: "https://nfid.one/authenticate",
-            maxTimeToLive:
-              BigInt(24 * 60 * 60 * 1000 * 1000 * 1000) * BigInt(30),
+            identityProvider: providerUrl,
+            maxTimeToLive: SESSION_MAX_TTL,
             windowOpenerFeatures:
               "toolbar=0,location=0,menubar=0,width=525,height=600,left=100,top=100",
             onSuccess: () => resolve(),
@@ -222,20 +397,27 @@ export function useICPWallet() {
           connecting: false,
           walletType: "nfid",
           error: null,
+          popupBlocked: false,
+          manualLoginUrl: null,
         }));
       } catch (e) {
         const msg = e instanceof Error ? e.message : "NFID login failed";
+        const isBlocked =
+          msg.toLowerCase().includes("closed") ||
+          msg.toLowerCase().includes("blocked") ||
+          msg.toLowerCase().includes("popup");
         setWalletState((p) => ({
           ...p,
           connecting: false,
-          error: msg,
+          error: isBlocked ? null : msg,
+          popupBlocked: isBlocked,
+          manualLoginUrl: isBlocked ? "https://nfid.one/authenticate" : null,
           walletType: null,
         }));
       }
       return;
     }
 
-    // Plug Wallet — redirect to install if not present
     if (type === "plug" && !isPlugInstalled()) {
       window.open("https://plugwallet.ooo/", "_blank", "noopener,noreferrer");
       setWalletState((p) => ({
@@ -249,6 +431,8 @@ export function useICPWallet() {
       ...p,
       connecting: true,
       error: null,
+      popupBlocked: false,
+      manualLoginUrl: null,
       walletType: type,
     }));
     try {
@@ -279,6 +463,19 @@ export function useICPWallet() {
         }));
       } else if (type === "bitfinity") {
         const ic = win().ic?.bitfinityWallet ?? win().bitfinityWallet;
+        if (!ic) {
+          window.open(
+            "https://wallet.bitfinity.network/",
+            "_blank",
+            "noopener,noreferrer",
+          );
+          setWalletState((p) => ({
+            ...p,
+            connecting: false,
+            error: "Bitfinity not installed. Opening install page...",
+          }));
+          return;
+        }
         await ic.requestConnect({ whitelist: [] });
         const raw = await ic.getBalance();
         let balanceICP = 0;
@@ -313,7 +510,8 @@ export function useICPWallet() {
         setWalletState((p) => ({
           ...p,
           connecting: false,
-          error: "Stoic Web App opened. Use manual payment after sending ICP.",
+          error:
+            "Stoic Web App opened. Approve the connection, then return here.",
         }));
       }
     } catch (e) {
@@ -325,6 +523,27 @@ export function useICPWallet() {
         walletType: null,
       }));
     }
+  }, []);
+
+  /** Manual Principal ID entry for admin/pro users who can't use popup flow */
+  const connectManualPrincipal = useCallback((principal: string) => {
+    if (!principal.trim()) return;
+    saveSession({
+      walletType: "nns",
+      principal: principal.trim(),
+      balanceICP: null,
+    });
+    setWalletState((p) => ({
+      ...p,
+      connected: true,
+      principal: principal.trim(),
+      walletType: "nns",
+      balanceICP: null,
+      connecting: false,
+      error: null,
+      popupBlocked: false,
+      manualLoginUrl: null,
+    }));
   }, []);
 
   const payWithWallet = useCallback(
@@ -373,5 +592,11 @@ export function useICPWallet() {
     setWalletState(INITIAL_STATE);
   }, [walletState.walletType]);
 
-  return { walletState, connectWallet, payWithWallet, disconnect };
+  return {
+    walletState,
+    connectWallet,
+    connectManualPrincipal,
+    payWithWallet,
+    disconnect,
+  };
 }

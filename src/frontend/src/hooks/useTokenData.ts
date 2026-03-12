@@ -122,22 +122,62 @@ function getMarketCapTier(symbol: string): MarketCapTier {
 }
 
 const RATIONALES = [
-  "4H OB retest with 15M MSB confirmed — strong long setup",
-  "FVG fill at key demand zone, 4H trend bullish — entry confirmed",
-  "Liquidity sweep below equal lows, BOS above structure — reversal play",
-  "4H CHOCH detected, 15M OB holding as support — bull continuation",
-  "RSI oversold on 4H, FVG acting as launchpad — high probability long",
-  "Institutional OB tested twice, volume confirms entry — accumulation zone",
-  "15M MSB to upside, 4H trend aligned — ride the impulse move",
-  "FVG + OB confluence at premium zone, smart money active",
-  "Bear trap confirmed below swing low, 4H demand respected",
-  "Triple confluence: OB + FVG + EQH sweep — textbook SMC long",
+  "Bullish Divergence on 4H RSI with OB retest — high-probability long entry",
+  "FVG fill at institutional demand zone, 4H trend aligned bullish — confirmed entry",
+  "Volume Spike on breakout above equal highs — momentum continuation setup",
+  "Bearish Divergence rejected at premium FVG — short bias with tight SL",
+  "Bullish Divergence confirmed at 4H OB support, 15M MSB upside — accumulation zone",
+  "FVG acting as launchpad post-liquidity sweep — expect impulsive move higher",
+  "Volume Spike with OB confluence at 4H demand — smart money accumulation detected",
+  "FVG + OB confluence at key level, 4H trend confirmed bullish — ride the impulse",
+  "Bearish Divergence at resistance with FVG overhead — distribution phase active",
+  "Bullish Divergence + Volume Spike at EQH sweep — triple confirmation SMC entry",
+  "4H CHOCH with FVG retest confirmed — strong bullish continuation signal",
+  "Institutional OB tested, Volume Spike confirms entry — high-probability setup",
 ];
+
+// Persistent signal cache key
+const SIGNAL_CACHE_LS_KEY = "ts_signal_cache_v2";
+
+function loadSignalCache(): Record<string, Signal> {
+  try {
+    const raw = localStorage.getItem(SIGNAL_CACHE_LS_KEY);
+    if (raw) return JSON.parse(raw) as Record<string, Signal>;
+  } catch {}
+  return {};
+}
+
+function saveSignalCache(cache: Record<string, Signal>) {
+  try {
+    localStorage.setItem(SIGNAL_CACHE_LS_KEY, JSON.stringify(cache));
+  } catch {}
+}
+
+/**
+ * Check if current market data shows a high-confluence opportunity:
+ * RSI proxy (momentum) + Volume spike + FVG zone detection
+ */
+function hasHighConfluence(priceData: TokenPrice): boolean {
+  const change24h = priceData.change24h;
+  const priceRange = priceData.high24h - priceData.low24h;
+  const priceInRange =
+    priceRange > 0 ? (priceData.price - priceData.low24h) / priceRange : 0.5;
+  const volumeRatio =
+    priceData.marketCap > 0 ? priceData.volume24h / priceData.marketCap : 0;
+
+  // RSI proxy: strong momentum (change24h), volume spike, FVG zone (price position)
+  const bullishMomentum = change24h > 1.5 && priceInRange > 0.55;
+  const highVolume = volumeRatio > 0.08;
+  const fvgZone = priceInRange > 0.4 && priceInRange < 0.75;
+
+  return bullishMomentum && (highVolume || fvgZone);
+}
 
 function buildSignal(
   symbol: string,
   priceData: TokenPrice,
   idx: number,
+  preservedCreatedAt?: number,
 ): Signal {
   const price = priceData.price;
   const coin = COIN_NAMES[symbol] ?? symbol.replace("USDT", "");
@@ -152,7 +192,6 @@ function buildSignal(
   const risk = entry - sl;
   const rr = risk > 0 ? (reward / risk).toFixed(1) : "5.0";
 
-  // Real market-data based indicators
   const change24h = priceData.change24h;
   const priceRange = priceData.high24h - priceData.low24h;
   const priceInRange =
@@ -160,27 +199,23 @@ function buildSignal(
   const volumeRatio =
     priceData.marketCap > 0 ? priceData.volume24h / priceData.marketCap : 0;
 
-  // Institutional conditions
   const bullishMomentum = change24h > 1.5 && priceInRange > 0.55;
   const highVolume = volumeRatio > 0.08;
   const trendConfirm = priceInRange > 0.6;
   const strongMomentum = change24h > 4;
 
-  // Confidence: base 70-84, boosted by real conditions
-  let confidence = 70 + ((idx * 7 + Math.floor(price)) % 15);
+  let confidence = 80 + ((idx * 7 + Math.floor(price)) % 8);
   if (bullishMomentum) confidence += 8;
   if (highVolume) confidence += 7;
   if (trendConfirm) confidence += 5;
   if (strongMomentum) confidence += 5;
   confidence = Math.min(98, confidence);
 
-  // Win rate
-  let winRate = 78 + ((idx * 5 + Math.floor(price * 7)) % 12);
+  let winRate = 80 + ((idx * 5 + Math.floor(price * 7)) % 8);
   if (bullishMomentum) winRate += 6;
   if (highVolume) winRate += 4;
   winRate = Math.min(97, winRate);
 
-  // SMC tags based on real conditions
   const tags: string[] = ["4H BULL", "15M MSB"];
   if (priceInRange > 0.5 || idx % 2 === 0) tags.push("OB");
   if (highVolume || idx % 3 === 0) tags.push("FVG");
@@ -214,18 +249,24 @@ function buildSignal(
     winRate,
     marketCapTier,
     isGoldenSniperEligible,
-    createdAt: Date.now(),
+    // CRITICAL: Use preserved createdAt if available — prevents timestamp reset on refresh
+    createdAt: preservedCreatedAt ?? Date.now(),
   };
 }
 
 export function useTokenData() {
   const [prices, setPrices] = useState<Record<string, TokenPrice>>({});
-  const [signals, setSignals] = useState<Signal[]>([]);
+  const [signals, setSignals] = useState<Signal[]>(() => {
+    // Load persisted signals immediately on mount to avoid timestamp reset
+    const cache = loadSignalCache();
+    return Object.values(cache);
+  });
   const [connected, setConnected] = useState(false);
   const prevPrices = useRef<Record<string, number>>({});
   const flashTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const wsRef = useRef<WebSocket | null>(null);
-  const signalCache = useRef<Record<string, Signal>>({});
+  // Initialize signal cache from localStorage — PERSISTS across refreshes
+  const signalCache = useRef<Record<string, Signal>>(loadSignalCache());
   const marketCaps = useRef<Record<string, number>>({});
 
   // Fetch market caps from CoinGecko
@@ -262,20 +303,59 @@ export function useTokenData() {
   }, []);
 
   const refreshSignals = useCallback((priceMap: Record<string, TokenPrice>) => {
+    let cacheChanged = false;
+
     const updated = TRACKED_SYMBOLS.filter((s) => priceMap[s]).map((s, i) => {
       const existing = signalCache.current[s];
       const livePrice = priceMap[s].price;
+
       if (existing) {
+        // Signal already exists — keep it STATIC (don't change entry/TP/SL)
+        // Only replace if price has drifted significantly AND confluence conditions are newly met
         const drift = Math.abs(livePrice - existing.entry) / existing.entry;
-        if (drift < 0.005) return existing;
+        if (drift < 0.02) {
+          // Under 2% drift — keep existing signal with original createdAt
+          return existing;
+        }
+        // Significant drift — only create new signal if confluence is detected
+        if (!hasHighConfluence(priceMap[s])) {
+          // No confluence — keep existing signal
+          return existing;
+        }
+      } else {
+        // No existing signal — only generate if confluence conditions met
+        if (!hasHighConfluence(priceMap[s])) {
+          return null; // Skip this symbol
+        }
       }
-      const fresh = buildSignal(s, priceMap[s], i);
-      // Preserve original createdAt if signal existed
-      if (existing) fresh.createdAt = existing.createdAt;
+
+      // Generate new signal (preserving createdAt if replacing)
+      const fresh = buildSignal(
+        s,
+        priceMap[s],
+        i,
+        existing?.createdAt, // Preserve original timestamp
+      );
       signalCache.current[s] = fresh;
+      cacheChanged = true;
       return fresh;
     });
-    setSignals(updated);
+
+    // Filter out nulls (symbols without confluence)
+    const validSignals = updated.filter((s): s is Signal => s !== null);
+
+    // Fallback: if no confluence signals found, use cached signals if available
+    // This ensures the signals tab always shows something after first load
+    const finalSignals =
+      validSignals.length > 0
+        ? validSignals
+        : Object.values(signalCache.current);
+
+    if (cacheChanged) {
+      saveSignalCache(signalCache.current);
+    }
+
+    setSignals(finalSignals);
   }, []);
 
   useEffect(() => {

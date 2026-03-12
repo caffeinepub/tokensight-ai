@@ -9,24 +9,37 @@ interface Props {
   isPro: boolean;
   onUnlock: () => void;
   scanningForGoldenSniper?: boolean;
+  isAdmin?: boolean;
   goldenHistoryEntry?: HistoryEntry | null;
 }
 
 function fmt(n: number): string {
-  if (n < 0.0001) return n.toFixed(8);
-  if (n < 0.001) return n.toFixed(7);
-  if (n < 1) return n.toFixed(5);
-  if (n < 100) return n.toFixed(3);
-  return n.toLocaleString("en-US", { maximumFractionDigits: 2 });
+  if (!n || Number.isNaN(n)) return "—";
+  if (n >= 1) {
+    return n.toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  }
+  if (n >= 0.0001) {
+    return n
+      .toFixed(6)
+      .replace(/(\.\d*?[1-9])0+$/, "$1")
+      .replace(/\.0+$/, ".000001");
+  }
+  return n.toPrecision(4);
 }
 
 function relativeTime(ts: number): string {
-  const mins = Math.floor((Date.now() - ts) / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
+  const totalMins = Math.floor((Date.now() - ts) / 60000);
+  if (totalMins < 1) return "< 1m ago";
+  if (totalMins < 60) return `${totalMins}m ago`;
+  const hrs = Math.floor(totalMins / 60);
+  const mins = totalMins % 60;
+  if (hrs < 24) return mins > 0 ? `${hrs}h ${mins}m ago` : `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  const remHrs = hrs % 24;
+  return remHrs > 0 ? `${days}d ${remHrs}h ago` : `${days}d ago`;
 }
 
 const COIN_COLORS: Record<string, string> = {
@@ -51,16 +64,19 @@ function SignalCard({
   signal,
   index,
   isPro,
+  isAdmin,
   onUnlock,
-}: { signal: Signal; index: number; isPro: boolean; onUnlock: () => void }) {
+}: {
+  signal: Signal;
+  index: number;
+  isPro: boolean;
+  isAdmin?: boolean;
+  onUnlock: () => void;
+}) {
   const color = COIN_COLORS[signal.symbol] ?? "#D4AF37";
-  // Only GEM tokens are hidden gems (Pro-locked)
-  const isLocked = !isPro && signal.isHiddenGem;
-  // For free users, lock all signals beyond the first non-gem one
-  const isLockedByTier = !isPro && index > 0;
-
-  const locked = isLocked || isLockedByTier;
-  const createdAt = signal.createdAt ?? Date.now();
+  // Index 0 is always FREE for everyone; all others require wallet/payment
+  const isFreeSignal = index === 0;
+  const locked = !isFreeSignal && !isPro && !isAdmin;
 
   return (
     <div
@@ -75,16 +91,19 @@ function SignalCard({
           className="absolute inset-0 z-10 flex flex-col items-center justify-center rounded-xl"
           style={{
             background: "rgba(8,11,20,0.88)",
-            backdropFilter: "blur(5px)",
+            backdropFilter: "blur(6px)",
           }}
         >
           <Lock className="text-[#D4AF37] mb-2" size={22} />
-          <p className="text-white font-bold text-xs mb-2">Pro Signal</p>
+          <p className="text-white font-bold text-xs mb-0.5">Pro Signal</p>
+          <p className="text-gray-500 text-[10px] font-mono mb-2">
+            Connect wallet to unlock
+          </p>
           <button
             type="button"
             data-ocid="signals.unlock_pro_button"
             onClick={onUnlock}
-            className="px-4 py-1.5 rounded-full font-mono font-bold text-xs"
+            className="px-4 py-1.5 rounded-full font-mono font-bold text-xs transition-all hover:scale-105"
             style={{
               background: "linear-gradient(135deg, #D4AF37, #FFD700)",
               color: "#080B14",
@@ -94,6 +113,7 @@ function SignalCard({
           </button>
         </div>
       )}
+
       <div className={locked ? "blur-sm select-none pointer-events-none" : ""}>
         <div className="p-3 md:p-4">
           {/* Header row */}
@@ -113,6 +133,22 @@ function SignalCard({
                 <span className="text-white font-bold text-sm">
                   {signal.coin}
                 </span>
+
+                {/* First signal: FREE COMMUNITY ALPHA badge */}
+                {isFreeSignal && (
+                  <span
+                    className="text-[10px] font-mono px-1.5 py-0.5 rounded-full border"
+                    style={{
+                      color: "#00FF88",
+                      borderColor: "#00FF88",
+                      background: "rgba(0,255,136,0.1)",
+                      animation: "pulse 2s cubic-bezier(0.4,0,0.6,1) infinite",
+                    }}
+                  >
+                    🎁 FREE COMMUNITY ALPHA
+                  </span>
+                )}
+
                 {signal.marketCapTier === "GEM" && (
                   <span
                     className="text-[10px] font-mono px-1.5 py-0.5 rounded-full border"
@@ -161,7 +197,7 @@ function SignalCard({
                 </span>
               ))}
               <span className="text-[9px] font-mono text-gray-500 ml-1">
-                🕒 {relativeTime(createdAt)}
+                🕒 {relativeTime(signal.createdAt)}
               </span>
             </div>
           </div>
@@ -193,12 +229,11 @@ function SignalCard({
             </span>
           </div>
 
-          {/* Rationale */}
           <p className="text-gray-500 text-[10px] italic mb-3">
             {signal.rationale}
           </p>
 
-          {/* Price grid */}
+          {/* Price grid \u2014 static values locked at signal creation */}
           <div className="grid grid-cols-5 gap-1.5">
             {[
               { label: "ENTRY", value: signal.entry, color: "#00D4FF" },
@@ -223,8 +258,7 @@ function SignalCard({
             ))}
           </div>
 
-          {/* Share button (pro signals) */}
-          {isPro && (
+          {(isPro || isAdmin) && (
             <div className="flex justify-end mt-2">
               <ShareMyWin signal={signal}>
                 <button
@@ -249,38 +283,39 @@ export function AlphaSection({
   onUnlock,
   scanningForGoldenSniper,
   goldenHistoryEntry,
+  isAdmin,
 }: Props) {
   const goldenSniperSignal =
     signals.find((s) => s.isGoldenSniperEligible) ?? null;
-  const lockedCount = isPro ? 0 : Math.max(0, signals.length - 1);
+  // Locked count: everything except the first free signal
+  const lockedCount = isPro || isAdmin ? 0 : Math.max(0, signals.length - 1);
 
   return (
     <section>
-      {/* Golden Sniper */}
       <GoldenSniper
         signal={goldenSniperSignal}
         isPro={isPro}
         onUnlock={onUnlock}
         scanningForGoldenSniper={scanningForGoldenSniper}
         historyEntry={goldenHistoryEntry}
+        isAdmin={isAdmin}
       />
 
-      {/* Active Signals Header */}
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-white font-mono font-bold text-sm">
           ACTIVE SIGNALS
           <span className="text-gray-500 font-normal ml-2">
-            ({isPro ? signals.length : 1} shown
-            {!isPro && lockedCount > 0 && (
+            ({isPro || isAdmin ? signals.length : signals.length} total
+            {!isPro && !isAdmin && lockedCount > 0 && (
               <span className="text-[#D4AF37]"> · {lockedCount} locked</span>
             )}
             )
           </span>
         </h2>
-        {!isPro && (
+        {!isPro && !isAdmin && lockedCount > 0 && (
           <button
             type="button"
-            data-ocid="signals.unlock_pro_button"
+            data-ocid="signals.unlock_more_button"
             onClick={onUnlock}
             className="text-[10px] font-mono text-[#D4AF37] border border-[#D4AF37]/40 px-3 py-1 rounded-full hover:bg-[#D4AF37]/10 transition-colors"
           >
@@ -289,6 +324,7 @@ export function AlphaSection({
         )}
       </div>
 
+      {/* Render ALL signals — 1st is always free, rest are locked for non-Pro */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
         {signals.map((s, i) => (
           <SignalCard
@@ -296,10 +332,32 @@ export function AlphaSection({
             signal={s}
             index={i}
             isPro={isPro}
+            isAdmin={isAdmin}
             onUnlock={onUnlock}
           />
         ))}
       </div>
+
+      {!isPro && !isAdmin && lockedCount > 0 && (
+        <div className="mt-4 rounded-xl border border-[#D4AF37]/20 bg-[#D4AF37]/5 px-4 py-3 text-center">
+          <p className="text-gray-400 text-xs font-mono">
+            🔒 {lockedCount} Pro signals are locked. Connect your wallet and
+            upgrade to access all signals + the Golden Sniper.
+          </p>
+          <button
+            type="button"
+            data-ocid="signals.upgrade_banner_button"
+            onClick={onUnlock}
+            className="mt-2 px-5 py-1.5 rounded-full font-mono font-bold text-xs transition-all hover:scale-105"
+            style={{
+              background: "linear-gradient(135deg, #D4AF37, #FFD700)",
+              color: "#080B14",
+            }}
+          >
+            Unlock Pro Access
+          </button>
+        </div>
+      )}
     </section>
   );
 }
