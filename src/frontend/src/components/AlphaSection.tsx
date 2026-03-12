@@ -19,15 +19,15 @@ interface Props {
  * - $1 and above: 2 decimal places with thousands separator.
  */
 function fmt(n: number): string {
-  if (!n || Number.isNaN(n) || n === 0) return "—";
+  if (!n || Number.isNaN(n) || n <= 0) return "—";
   if (n >= 1) {
     return n.toLocaleString("en-US", {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     });
   }
-  // 8 decimal places ensures SHIB ($0.00002521), PEPE ($0.00001234) display correctly
-  return n.toFixed(8);
+  if (n < 0.001) return n.toFixed(8);
+  return n.toFixed(6);
 }
 
 function relativeTime(ts: number): string {

@@ -211,6 +211,7 @@ export default function App() {
           {activeTab === "history" && (
             <SignalHistoryTab
               isPro={isPro}
+              isAdmin={isAdminAccess}
               onUnlock={() => setShowModal(true)}
               history={history}
             />

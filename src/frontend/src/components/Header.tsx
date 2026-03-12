@@ -367,7 +367,7 @@ export function Header({ onUnlockPro }: Props) {
                     ) : (
                       <>
                         <RefreshCw size={11} />
-                        Force Login (Recover Session)
+                        Refresh & Sync Identity
                       </>
                     )}
                   </button>

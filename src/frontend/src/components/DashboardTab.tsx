@@ -1,5 +1,5 @@
 import { Activity, BarChart2, TrendingUp, Users } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { HistoryEntry } from "../hooks/useSignalHistory";
 import type { TokenPrice } from "../hooks/useTokenData";
 import { COIN_NAMES, TRACKED_SYMBOLS } from "../hooks/useTokenData";
@@ -41,15 +41,17 @@ const COIN_COLORS: Record<string, string> = {
  * - Below $1: 8 decimal places so micro-prices (SHIB, PEPE) show correctly.
  * - $1 and above: 2 decimal places with thousands separator.
  */
-function fmt(n: number): string {
-  if (!n || Number.isNaN(n) || n === 0) return "—";
-  if (n >= 1) {
-    return n.toLocaleString("en-US", {
+function fmt(n: number, lastKnown?: number): string {
+  const v = !n || Number.isNaN(n) || n <= 0 ? (lastKnown ?? 0) : n;
+  if (v <= 0) return "—";
+  if (v >= 1) {
+    return v.toLocaleString("en-US", {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     });
   }
-  return n.toFixed(8);
+  if (v < 0.001) return v.toFixed(8);
+  return v.toFixed(6);
 }
 
 function fmtMC(n: number): string {
@@ -75,6 +77,14 @@ export function DashboardTab({
   const [fearGreed, setFearGreed] = useState<FearGreed | null>(null);
   const [fgLoading, setFgLoading] = useState(true);
   const loadedCount = TRACKED_SYMBOLS.filter((s) => prices[s]).length;
+  const lastKnownPricesRef = useRef<Record<string, number>>({});
+
+  // Keep lastKnownPrices updated with real prices
+  useEffect(() => {
+    for (const [sym, data] of Object.entries(prices)) {
+      if (data.price > 0) lastKnownPricesRef.current[sym] = data.price;
+    }
+  }, [prices]);
 
   // Live Fear & Greed from Alternative.me
   useEffect(() => {
@@ -436,8 +446,8 @@ export function DashboardTab({
                   className="font-mono font-bold text-xs text-right transition-colors duration-300"
                   style={{ color: p?.flashColor ?? "#FFFFFF" }}
                 >
-                  {p ? (
-                    `$${fmt(p.price)}`
+                  {p || lastKnownPricesRef.current[symbol] ? (
+                    `$${fmt(p?.price ?? 0, lastKnownPricesRef.current[symbol])}`
                   ) : (
                     <span className="text-gray-700 text-[10px]">&mdash;</span>
                   )}
