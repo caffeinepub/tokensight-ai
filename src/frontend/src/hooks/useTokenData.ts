@@ -32,6 +32,7 @@ export interface Signal {
   winRate: number;
   marketCapTier: MarketCapTier;
   isGoldenSniperEligible: boolean;
+  createdAt: number;
 }
 
 export const TRACKED_SYMBOLS = [
@@ -213,6 +214,7 @@ function buildSignal(
     winRate,
     marketCapTier,
     isGoldenSniperEligible,
+    createdAt: Date.now(),
   };
 }
 
@@ -268,6 +270,8 @@ export function useTokenData() {
         if (drift < 0.005) return existing;
       }
       const fresh = buildSignal(s, priceMap[s], i);
+      // Preserve original createdAt if signal existed
+      if (existing) fresh.createdAt = existing.createdAt;
       signalCache.current[s] = fresh;
       return fresh;
     });

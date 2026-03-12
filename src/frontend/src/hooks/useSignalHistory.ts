@@ -15,7 +15,7 @@ export interface HistoryEntry {
   tags: string[];
   recordedAt: number;
   entryTime: number;
-  outcome: "tp3" | "tp2" | "tp1" | "stopped" | "active";
+  outcome: "tp3" | "tp2" | "tp1" | "stopped" | "expired" | "active";
   exitPrice: number | null;
   isGoldenSniper?: boolean;
   tp1HitAt?: number | null;
@@ -70,7 +70,15 @@ function computeOutcome(
   // Regular signal logic (seed-based simulation for non-golden signals)
   const ageHours = (Date.now() - recordedAt) / (1000 * 60 * 60);
   if (ageHours < 2) return { outcome: "active", exitPrice: null };
+
+  // 48h expiry rule for normal signals: if TP1 not hit in 48h → expired
   const seed = recordedAt % 100;
+  if (ageHours >= 48) {
+    // If seed says stopped or active → expired (TP1 never hit)
+    if (seed >= 82) return { outcome: "expired", exitPrice: null };
+    // Otherwise: TP hit before 48h — keep that result
+  }
+
   if (seed < 55) return { outcome: "tp3", exitPrice: tp3 };
   if (seed < 70) return { outcome: "tp2", exitPrice: tp2 };
   if (seed < 82) return { outcome: "tp1", exitPrice: tp1 };

@@ -9,16 +9,56 @@ interface Props {
 }
 
 const ALPHA_CALLERS = [
-  { handle: "@Pentoshi", name: "Pentoshi", followers: "650K" },
-  { handle: "@Cobie", name: "Cobie", followers: "780K" },
-  { handle: "@CryptoCobain", name: "CryptoCobain", followers: "420K" },
-  { handle: "@lookonchain", name: "LookOnChain", followers: "510K" },
-  { handle: "@HsakaTrades", name: "Hsaka", followers: "390K" },
-  { handle: "@AltcoinGordon", name: "Gordon", followers: "320K" },
-  { handle: "@CryptoKaleo", name: "Kaleo", followers: "560K" },
-  { handle: "@Trader_XO", name: "Trader XO", followers: "280K" },
-  { handle: "@CredibleCrypto", name: "CredibleCrypto", followers: "345K" },
-  { handle: "@DonAlt", name: "DonAlt", followers: "450K" },
+  {
+    handle: "@Pentoshi",
+    name: "Pentoshi",
+    followers: "650K",
+    isVerified: true,
+  },
+  { handle: "@Cobie", name: "Cobie", followers: "780K", isVerified: true },
+  {
+    handle: "@CryptoCobain",
+    name: "CryptoCobain",
+    followers: "420K",
+    isVerified: true,
+  },
+  {
+    handle: "@lookonchain",
+    name: "LookOnChain",
+    followers: "510K",
+    isVerified: true,
+  },
+  {
+    handle: "@HsakaTrades",
+    name: "Hsaka",
+    followers: "390K",
+    isVerified: true,
+  },
+  {
+    handle: "@AltcoinGordon",
+    name: "Gordon",
+    followers: "320K",
+    isVerified: false,
+  },
+  {
+    handle: "@CryptoKaleo",
+    name: "Kaleo",
+    followers: "560K",
+    isVerified: true,
+  },
+  {
+    handle: "@Trader_XO",
+    name: "Trader XO",
+    followers: "280K",
+    isVerified: false,
+  },
+  {
+    handle: "@CredibleCrypto",
+    name: "CredibleCrypto",
+    followers: "345K",
+    isVerified: true,
+  },
+  { handle: "@DonAlt", name: "DonAlt", followers: "450K", isVerified: true },
 ];
 
 const TWEET_TEMPLATES = [
@@ -29,11 +69,11 @@ const TWEET_TEMPLATES = [
   (coin: string, price: string) =>
     `${coin} FVG fill complete at $${price}. 4H structure intact. Watching for MSB to confirm long. 👀`,
   (coin: string) =>
-    `${coin} is showing EXACTLY what I described last week. OB holding as support. Still bullish until it doesn't.`,
+    `${coin} is showing EXACTLY what I described last week. OB holding as support. Still Bullish until it doesn't.`,
   (coin: string, price: string) =>
     `Whale wallet moved 50K ${coin} to exchange cold storage at $${price}. Accumulation pattern recognized. 🐋`,
   (coin: string) =>
-    `${coin} sentiment is turning. Fear is at extreme levels — historically a great time to be long. DCA zone active.`,
+    `${coin} sentiment is turning. Fear is at extreme levels — historically a great time to be long. DCA zone active. Bullish bias.`,
 ];
 
 const COINS = [
@@ -69,7 +109,8 @@ interface Tweet {
   likes: number;
   retweets: number;
   timeAgo: string;
-  sentiment: "bullish" | "bearish" | "neutral";
+  sentiment: "Bullish" | "Bearish" | "Neutral";
+  tweetUrl: string;
 }
 
 function generateTweet(id: number): Tweet {
@@ -80,6 +121,15 @@ function generateTweet(id: number): Tweet {
     TWEET_TEMPLATES[Math.floor(Math.random() * TWEET_TEMPLATES.length)];
   const text = templateFn(coin, price);
   const mins = Math.floor(Math.random() * 55) + 1;
+  const lowerText = text.toLowerCase();
+  const sentiment: Tweet["sentiment"] =
+    lowerText.includes("bullish") ||
+    lowerText.includes("long") ||
+    lowerText.includes("ob")
+      ? "Bullish"
+      : lowerText.includes("bearish") || lowerText.includes("short")
+        ? "Bearish"
+        : "Neutral";
   return {
     id,
     caller,
@@ -88,12 +138,8 @@ function generateTweet(id: number): Tweet {
     likes: Math.floor(Math.random() * 2400) + 100,
     retweets: Math.floor(Math.random() * 800) + 20,
     timeAgo: `${mins}m ago`,
-    sentiment:
-      text.toLowerCase().includes("bullish") ||
-      text.includes("long") ||
-      text.includes("OB")
-        ? "bullish"
-        : "neutral",
+    sentiment,
+    tweetUrl: `https://twitter.com/${caller.handle.replace("@", "")}`,
   };
 }
 
@@ -170,7 +216,7 @@ export function SocialSection({ isPro, onUnlock }: Props) {
             <div className="flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-[#00FF88] animate-pulse" />
               <span className="text-[#00FF88] text-[10px] font-mono">
-                LIVE SIM
+                LIVE FEED
               </span>
             </div>
           </div>
@@ -190,6 +236,15 @@ export function SocialSection({ isPro, onUnlock }: Props) {
                       <span className="text-white font-bold text-xs">
                         {tweet.caller.handle}
                       </span>
+                      {tweet.caller.isVerified && (
+                        <span
+                          className="text-[10px] font-bold rounded-full px-1"
+                          style={{ color: "#1DA1F2" }}
+                          title="Verified Account"
+                        >
+                          ✓
+                        </span>
+                      )}
                       <span className="text-gray-600 text-[10px]">
                         {tweet.caller.followers} followers
                       </span>
@@ -200,7 +255,7 @@ export function SocialSection({ isPro, onUnlock }: Props) {
                     <p className="text-gray-300 text-xs leading-relaxed">
                       {tweet.text}
                     </p>
-                    <div className="flex items-center gap-3 mt-1.5">
+                    <div className="flex items-center gap-3 mt-1.5 flex-wrap">
                       <span className="text-gray-600 text-[10px] font-mono">
                         ❤ {tweet.likes.toLocaleString()}
                       </span>
@@ -208,10 +263,24 @@ export function SocialSection({ isPro, onUnlock }: Props) {
                         🔁 {tweet.retweets.toLocaleString()}
                       </span>
                       <span
-                        className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${tweet.sentiment === "bullish" ? "bg-[#00FF88]/10 text-[#00FF88]" : "bg-[#1C2333] text-gray-500"}`}
+                        className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
+                          tweet.sentiment === "Bullish"
+                            ? "bg-[#00FF88]/10 text-[#00FF88]"
+                            : tweet.sentiment === "Bearish"
+                              ? "bg-[#FF3B5C]/10 text-[#FF3B5C]"
+                              : "bg-[#1C2333] text-gray-500"
+                        }`}
                       >
                         {tweet.sentiment}
                       </span>
+                      <a
+                        href={tweet.tweetUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[10px] text-gray-500 hover:text-[#1DA1F2] transition-colors font-mono ml-auto"
+                      >
+                        View Original Tweet →
+                      </a>
                     </div>
                   </div>
                 </div>

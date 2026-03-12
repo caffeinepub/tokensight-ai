@@ -1,4 +1,5 @@
 import { Crown, Lock } from "lucide-react";
+import type { HistoryEntry } from "../hooks/useSignalHistory";
 import type { Signal } from "../hooks/useTokenData";
 
 interface Props {
@@ -6,6 +7,7 @@ interface Props {
   isPro: boolean;
   onUnlock: () => void;
   scanningForGoldenSniper?: boolean;
+  historyEntry?: HistoryEntry | null;
 }
 
 function fmt(n: number): string {
@@ -13,6 +15,15 @@ function fmt(n: number): string {
   if (n < 1) return n.toFixed(6);
   if (n < 100) return n.toFixed(4);
   return n.toLocaleString("en-US", { maximumFractionDigits: 2 });
+}
+
+function relativeTime(ts: number): string {
+  const mins = Math.floor((Date.now() - ts) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
 }
 
 const COIN_COLORS: Record<string, string> = {
@@ -116,6 +127,7 @@ export function GoldenSniper({
   isPro,
   onUnlock,
   scanningForGoldenSniper,
+  historyEntry,
 }: Props) {
   // STRICT: only render the active signal card if confidence > 95 AND winRate > 90
   const isEligible =
@@ -147,7 +159,7 @@ export function GoldenSniper({
 
       <div className="p-4 md:p-6">
         {/* Header */}
-        <div className="flex items-center gap-2 mb-2">
+        <div className="flex items-center gap-2 mb-2 flex-wrap">
           <Crown className="text-[#FFD700]" size={20} />
           <span className="text-[#FFD700] font-mono font-bold text-sm tracking-widest">
             THE GOLDEN SNIPER
@@ -155,6 +167,11 @@ export function GoldenSniper({
           {isEligible && (
             <span className="bg-[#D4AF37]/20 text-[#FFD700] text-[10px] font-mono px-2 py-0.5 rounded-full border border-[#D4AF37]/40">
               Triple Confirmation
+            </span>
+          )}
+          {isEligible && signal && (
+            <span className="text-gray-500 text-[10px] font-mono ml-auto">
+              🕒 {relativeTime(signal.createdAt)}
             </span>
           )}
           {scanningForGoldenSniper && !isEligible && (
@@ -193,7 +210,7 @@ export function GoldenSniper({
             </p>
 
             {/* Confirmation pills */}
-            <div className="flex gap-2 mb-4 flex-wrap">
+            <div className="flex gap-2 mb-3 flex-wrap">
               {["OB Confirmed ✓", "FVG Fill ✓", "Liquidity Sweep ✓"].map(
                 (p) => (
                   <span
@@ -210,6 +227,48 @@ export function GoldenSniper({
                 ),
               )}
             </div>
+
+            {/* TP Hit status pills (only when pro and historyEntry available) */}
+            {isPro && historyEntry && (
+              <div className="flex gap-2 mb-4 flex-wrap">
+                {historyEntry.tp1HitAt && (
+                  <span
+                    className="text-[10px] font-mono px-2 py-0.5 rounded-full border"
+                    style={{
+                      background: "rgba(0,255,136,0.12)",
+                      color: "#00FF88",
+                      border: "1px solid rgba(0,255,136,0.4)",
+                    }}
+                  >
+                    ✅ TP1 Hit
+                  </span>
+                )}
+                {historyEntry.tp2HitAt && (
+                  <span
+                    className="text-[10px] font-mono px-2 py-0.5 rounded-full border"
+                    style={{
+                      background: "rgba(255,160,0,0.12)",
+                      color: "#FFA000",
+                      border: "1px solid rgba(255,160,0,0.4)",
+                    }}
+                  >
+                    🔥🔥 TP2 Hit
+                  </span>
+                )}
+                {historyEntry.tp3HitAt && (
+                  <span
+                    className="text-[10px] font-mono px-2 py-0.5 rounded-full border"
+                    style={{
+                      background: "rgba(212,175,55,0.15)",
+                      color: "#FFD700",
+                      border: "1px solid rgba(212,175,55,0.4)",
+                    }}
+                  >
+                    🚀 TP3 Hit
+                  </span>
+                )}
+              </div>
+            )}
 
             {!isPro ? (
               <div className="relative">

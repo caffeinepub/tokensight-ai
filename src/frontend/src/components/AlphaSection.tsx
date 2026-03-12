@@ -1,4 +1,5 @@
 import { Lock, Share2 } from "lucide-react";
+import type { HistoryEntry } from "../hooks/useSignalHistory";
 import type { Signal } from "../hooks/useTokenData";
 import { GoldenSniper } from "./GoldenSniper";
 import { ShareMyWin } from "./ShareMyWin";
@@ -8,6 +9,7 @@ interface Props {
   isPro: boolean;
   onUnlock: () => void;
   scanningForGoldenSniper?: boolean;
+  goldenHistoryEntry?: HistoryEntry | null;
 }
 
 function fmt(n: number): string {
@@ -16,6 +18,15 @@ function fmt(n: number): string {
   if (n < 1) return n.toFixed(5);
   if (n < 100) return n.toFixed(3);
   return n.toLocaleString("en-US", { maximumFractionDigits: 2 });
+}
+
+function relativeTime(ts: number): string {
+  const mins = Math.floor((Date.now() - ts) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
 }
 
 const COIN_COLORS: Record<string, string> = {
@@ -49,6 +60,7 @@ function SignalCard({
   const isLockedByTier = !isPro && index > 0;
 
   const locked = isLocked || isLockedByTier;
+  const createdAt = signal.createdAt ?? Date.now();
 
   return (
     <div
@@ -148,6 +160,9 @@ function SignalCard({
                   {t}
                 </span>
               ))}
+              <span className="text-[9px] font-mono text-gray-500 ml-1">
+                🕒 {relativeTime(createdAt)}
+              </span>
             </div>
           </div>
 
@@ -233,6 +248,7 @@ export function AlphaSection({
   isPro,
   onUnlock,
   scanningForGoldenSniper,
+  goldenHistoryEntry,
 }: Props) {
   const goldenSniperSignal =
     signals.find((s) => s.isGoldenSniperEligible) ?? null;
@@ -246,6 +262,7 @@ export function AlphaSection({
         isPro={isPro}
         onUnlock={onUnlock}
         scanningForGoldenSniper={scanningForGoldenSniper}
+        historyEntry={goldenHistoryEntry}
       />
 
       {/* Active Signals Header */}

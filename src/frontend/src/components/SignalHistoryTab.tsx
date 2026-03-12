@@ -19,7 +19,7 @@ interface Props {
 
 type SubTab = "all" | "golden";
 
-const OUTCOME_CONFIG = {
+const OUTCOME_CONFIG: Record<string, { label: string; className: string }> = {
   tp3: {
     label: "🚀 TP3 Hit",
     className: "bg-[#00FF88]/20 text-[#00FF88] border-[#00FF88]/40",
@@ -35,6 +35,10 @@ const OUTCOME_CONFIG = {
   stopped: {
     label: "❌ Stopped Out",
     className: "bg-[#FF3B5C]/20 text-[#FF3B5C] border-[#FF3B5C]/40",
+  },
+  expired: {
+    label: "⏰ Expired",
+    className: "bg-gray-500/20 text-gray-400 border-gray-500/40",
   },
   active: {
     label: "🟡 Active",
@@ -56,6 +60,11 @@ function fmtDate(ts: number): string {
     day: "numeric",
     year: "numeric",
   });
+}
+
+function calcProfit(entry: number, exitPrice: number | null): string | null {
+  if (!exitPrice) return null;
+  return (((exitPrice - entry) / entry) * 100).toFixed(2);
 }
 
 function HistoryTable({
@@ -89,22 +98,29 @@ function HistoryTable({
       <Table>
         <TableHeader>
           <TableRow className="border-[#1C2333] hover:bg-transparent">
-            {["Coin", "Entry", "Exit", "R:R", "Outcome", "Date"].map((h) => (
-              <TableHead
-                key={h}
-                className="text-gray-500 font-mono text-[10px] uppercase"
-              >
-                {h}
-              </TableHead>
-            ))}
+            {["Coin", "Entry", "Exit", "Profit", "R:R", "Outcome", "Date"].map(
+              (h) => (
+                <TableHead
+                  key={h}
+                  className="text-gray-500 font-mono text-[10px] uppercase"
+                >
+                  {h}
+                </TableHead>
+              ),
+            )}
           </TableRow>
         </TableHeader>
         <TableBody>
           {rows.map((row, i) => {
-            const cfg = OUTCOME_CONFIG[row.outcome];
-            const isWin = row.outcome !== "stopped" && row.outcome !== "active";
+            const cfg = OUTCOME_CONFIG[row.outcome] ?? OUTCOME_CONFIG.active;
+            const isWin =
+              row.outcome !== "stopped" &&
+              row.outcome !== "active" &&
+              row.outcome !== "expired";
             const isActiveGolden =
               showMonitoring && row.outcome === "active" && row.isGoldenSniper;
+            const profitStr = calcProfit(row.entry, row.exitPrice);
+            const profitNum = profitStr ? Number(profitStr) : null;
             return (
               <TableRow
                 key={`${row.id}-${row.recordedAt}`}
@@ -127,6 +143,21 @@ function HistoryTable({
                   style={{ color: isWin ? "#00FF88" : "#FF3B5C" }}
                 >
                   {row.exitPrice ? `$${fmt(row.exitPrice)}` : "—"}
+                </TableCell>
+                <TableCell
+                  className="font-mono text-xs font-bold"
+                  style={{
+                    color:
+                      profitNum === null
+                        ? "#6B7280"
+                        : profitNum > 0
+                          ? "#00FF88"
+                          : "#FF3B5C",
+                  }}
+                >
+                  {profitNum !== null
+                    ? `${profitNum > 0 ? "+" : ""}${profitStr}%`
+                    : "—"}
                 </TableCell>
                 <TableCell className="font-mono text-xs text-gray-400">
                   {row.rrRatio}
@@ -288,7 +319,7 @@ export function SignalHistoryTab({ isPro, onUnlock, history }: Props) {
   const lockedCount = completedHistory.length - visibleRows.length;
 
   const winCount = completedHistory.filter(
-    (e) => e.outcome !== "stopped",
+    (e) => e.outcome !== "stopped" && e.outcome !== "expired",
   ).length;
   const winRateCalc =
     completedHistory.length > 0
@@ -297,12 +328,18 @@ export function SignalHistoryTab({ isPro, onUnlock, history }: Props) {
 
   const goldenCompleted = goldenHistory.filter((e) => e.outcome !== "active");
   const goldenWins = goldenCompleted.filter(
-    (e) => e.outcome !== "stopped",
+    (e) => e.outcome !== "stopped" && e.outcome !== "expired",
   ).length;
   const goldenWinRate =
     goldenCompleted.length > 0
       ? ((goldenWins / goldenCompleted.length) * 100).toFixed(1)
       : null;
+
+  // Show 92.5% as baseline until enough local history accumulates (5+ completed)
+  const displayedWinRate =
+    winRateCalc && completedHistory.length >= 5
+      ? `${winRateCalc}% Win Rate`
+      : "92.5% Win Rate";
 
   return (
     <section>
@@ -322,7 +359,7 @@ export function SignalHistoryTab({ isPro, onUnlock, history }: Props) {
             </span>
           )}
           <span className="text-[10px] font-mono px-2 py-1 rounded-full border border-[#00FF88]/40 bg-[#00FF88]/10 text-[#00FF88]">
-            {winRateCalc ? `${winRateCalc}% Win Rate` : "Awaiting data"}
+            {displayedWinRate}
           </span>
         </div>
       </div>

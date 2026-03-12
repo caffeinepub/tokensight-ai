@@ -14,6 +14,7 @@ import { UnlockProModal } from "./components/UnlockProModal";
 import { WhaleTicker } from "./components/WhaleTicker";
 import { useICPWallet } from "./hooks/useICPWallet";
 import { usePremium } from "./hooks/usePremium";
+import type { HistoryEntry } from "./hooks/useSignalHistory";
 import { useSignalHistory } from "./hooks/useSignalHistory";
 import { useTokenData } from "./hooks/useTokenData";
 
@@ -106,6 +107,17 @@ export default function App() {
 
   const activeSignals = history.filter((e) => e.outcome === "active");
 
+  // Find the golden sniper history entry for the current active golden signal
+  const goldenSniperSignal = signals.find((s) => s.isGoldenSniperEligible);
+  const goldenHistoryEntry: HistoryEntry | null = goldenSniperSignal
+    ? (history.find(
+        (e) =>
+          e.id === goldenSniperSignal.id &&
+          e.isGoldenSniper === true &&
+          e.outcome === "active",
+      ) ?? null)
+    : null;
+
   if (IS_ADMIN)
     return (
       <AdminPanel
@@ -179,6 +191,7 @@ export default function App() {
               isPro={isPro}
               onUnlock={() => setShowModal(true)}
               scanningForGoldenSniper={scanningForGoldenSniper}
+              goldenHistoryEntry={goldenHistoryEntry}
             />
           )}
           {activeTab === "social" && (
