@@ -1,10 +1,23 @@
 {
-  "name": "Tokensight AI",
-  "short_name": "TokensightAI",
-  "description": "Your AI Lens into the Crypto Future",
+  "name": "TokenSight",
+  "short_name": "TokenSight",
+  "description": "AI-powered SMC swing trading signals",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0A0A1A",
-  "theme_color": "#00D4FF",
-  "icons": [{"src": "/favicon.ico", "sizes": "64x64", "type": "image/x-icon"}]
+  "background_color": "#0B0E11",
+  "theme_color": "#0B0E11",
+  "icons": [
+    {
+      "src": "/assets/generated/ts-logo-192.dim_192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/assets/generated/ts-logo-512.dim_512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
 }

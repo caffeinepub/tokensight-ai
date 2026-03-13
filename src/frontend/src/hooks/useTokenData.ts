@@ -29,6 +29,7 @@ export interface Signal {
   confidence: number;
   isHiddenGem: boolean;
   trendAlignment: "BULL" | "BEAR";
+  direction: "BUY" | "SELL";
   winRate: number;
   marketCapTier: MarketCapTier;
   isGoldenSniperEligible: boolean;
@@ -104,11 +105,6 @@ const COINGECKO_IDS: Record<string, string> = {
   NEARUSDT: "near",
 };
 
-/**
- * Fallback prices — used when the WebSocket/API hasn't provided data yet
- * or if a fetch fails. These are approximate and reset on the next real tick.
- * This prevents the UI from ever showing $0 or zeros.
- */
 const FALLBACK_PRICES: Record<string, number> = {
   BTCUSDT: 65000,
   ETHUSDT: 3200,
@@ -121,8 +117,8 @@ const FALLBACK_PRICES: Record<string, number> = {
   LINKUSDT: 14,
   MATICUSDT: 0.68,
   ICPUSDT: 8.5,
-  PEPEUSDT: 0.00001234,
-  SHIBUSDT: 0.00002521,
+  PEPEUSDT: 0.000012,
+  SHIBUSDT: 0.000025,
   ARBUSDT: 0.85,
   OPUSDT: 1.8,
   DOTUSDT: 7.2,
@@ -149,21 +145,103 @@ function getMarketCapTier(symbol: string): MarketCapTier {
   return "MAJOR_ALPHA";
 }
 
+// ─── AI Model Data Persistence ───────────────────────────────────────────────
+
+const AI_MODEL_KEY = "AI_Model_Data";
+
+interface AIModelData {
+  BUY: { wins: number; total: number };
+  SELL: { wins: number; total: number };
+  lastUpdated: number;
+  totalSignals: number;
+}
+
+export function loadAIModelData(): AIModelData {
+  try {
+    const raw = localStorage.getItem(AI_MODEL_KEY);
+    if (raw) return JSON.parse(raw) as AIModelData;
+  } catch {}
+  return {
+    BUY: { wins: 0, total: 0 },
+    SELL: { wins: 0, total: 0 },
+    lastUpdated: Date.now(),
+    totalSignals: 0,
+  };
+}
+
+export function recordAIOutcome(
+  direction: "BUY" | "SELL",
+  isWin: boolean,
+): void {
+  try {
+    const data = loadAIModelData();
+    data[direction].total++;
+    if (isWin) data[direction].wins++;
+    data.totalSignals++;
+    data.lastUpdated = Date.now();
+    localStorage.setItem(AI_MODEL_KEY, JSON.stringify(data));
+    // Sync to ts_signal_outcomes for backward compat with getDirectionBias
+    const outcomes: Record<string, { wins: number; total: number }> = {
+      BUY: data.BUY,
+      SELL: data.SELL,
+    };
+    localStorage.setItem("ts_signal_outcomes", JSON.stringify(outcomes));
+  } catch {}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Auto-learning: bias confidence based on historical BUY/SELL accuracy
+function getDirectionBias(dir: "BUY" | "SELL"): number {
+  try {
+    // Primary: AI_Model_Data
+    const aiRaw = localStorage.getItem(AI_MODEL_KEY);
+    if (aiRaw) {
+      const ai: AIModelData = JSON.parse(aiRaw);
+      const data = ai[dir];
+      if (data && data.total >= 3) {
+        const rate = data.wins / data.total;
+        return rate > 0.75
+          ? 3
+          : rate > 0.6
+            ? 1
+            : rate < 0.25
+              ? -3
+              : rate < 0.4
+                ? -1
+                : 0;
+      }
+    }
+    // Fallback: ts_signal_outcomes
+    const raw = localStorage.getItem("ts_signal_outcomes");
+    if (!raw) return 0;
+    const outcomes: Record<string, { wins: number; total: number }> =
+      JSON.parse(raw);
+    const data = outcomes[dir];
+    if (!data || data.total < 3) return 0;
+    const rate = data.wins / data.total;
+    return rate > 0.7 ? 2 : rate < 0.3 ? -2 : 0;
+  } catch {
+    return 0;
+  }
+}
+
+// SMC rationales covering both BUY and SELL scenarios
 const RATIONALES = [
-  "Bullish Divergence on 4H RSI with OB retest — high-probability long entry",
-  "FVG fill at institutional demand zone, 4H trend aligned bullish — confirmed entry",
-  "Volume Spike on breakout above equal highs — momentum continuation setup",
-  "Bearish Divergence rejected at premium FVG — short bias with tight SL",
-  "Bullish Divergence confirmed at 4H OB support, 15M MSB upside — accumulation zone",
-  "FVG acting as launchpad post-liquidity sweep — expect impulsive move higher",
-  "Volume Spike with OB confluence at 4H demand — smart money accumulation detected",
-  "FVG + OB confluence at key level, 4H trend confirmed bullish — ride the impulse",
-  "Bearish Divergence at resistance with FVG overhead — distribution phase active",
-  "Bullish Divergence + Volume Spike at EQH sweep — triple confirmation SMC entry",
-  "4H CHoCH confirmed above OB — market structure shifted bullish, FVG fill imminent",
-  "MSB on 15M with Liquidity Sweep + FVG confluence — institutional entry confirmed",
-  "CHoCH + OB retest + Liquidity Sweep — triple SMC confluence, high-probability setup",
-  "Institutional OB tested, Volume Spike confirms entry — high-probability setup",
+  "MSB confirmed on 4H — Bullish OB retest at institutional demand zone. Smart money accumulation detected. BUY setup active.",
+  "Bearish OB supply zone touched — MSB to the downside confirmed. Smart money distribution detected. SELL setup active.",
+  "Bullish MSB above Equal Highs — OB demand zone swept and reclaimed. FVG fill imminent with volume confirmation.",
+  "Bearish MSB at 4H supply OB — CHoCH confirmed. Smart money distribution phase. Short entry with strong confluence.",
+  "OB mitigation at key SMC demand level — MSB on 15M aligns with 4H bullish trend. Liquidity Sweep confirms long entry.",
+  "Supply OB rejected — MSB downside on H4 with CHoCH. Volume confirms bearish institutional flow. SELL.",
+  "Liquidity Sweep below EQLs into OB support — MSB triggered on recovery. Triple SMC: OB + FVG + MSB. Long entry.",
+  "Bearish OB + FVG overhead — MSB downside confirms. Smart money distribution. Short position validated.",
+  "Order Block touch + FVG fill convergence — MSB upside on 15M confirms momentum continuation. BUY.",
+  "Bearish CHoCH at HTF supply — MSB down confirmed with volume spike. Institutional short flow active.",
+  "Bullish CHoCH + MSB above OB — FVG acting as launchpad. Institutional order flow confirms long.",
+  "OB + FVG at 4H demand — MSB upside with Liquidity Sweep below recent lows. SMC triple confirmation BUY.",
+  "MSB above key resistance — OB defended with volume surge. Trend continuation BUY setup confirmed.",
+  "SMC Quantum V26: Bearish OB + MSB downside — Liquidity Sweep above recent highs. Distribution confirmed. SELL.",
 ];
 
 const SIGNAL_CACHE_LS_KEY = "ts_signal_cache_v2";
@@ -192,14 +270,6 @@ function buildSignal(
   const coin = COIN_NAMES[symbol] ?? symbol.replace("USDT", "");
   const marketCapTier = getMarketCapTier(symbol);
   const isHiddenGem = marketCapTier === "GEM";
-  const entry = price;
-  const tp1 = entry * 1.02;
-  const tp2 = entry * 1.05;
-  const tp3 = entry * 1.1;
-  const sl = entry * 0.98;
-  const reward = tp3 - entry;
-  const risk = entry - sl;
-  const rr = risk > 0 ? (reward / risk).toFixed(1) : "5.0";
 
   const change24h = priceData.change24h;
   const priceRange = priceData.high24h - priceData.low24h;
@@ -208,29 +278,59 @@ function buildSignal(
   const volumeRatio =
     priceData.marketCap > 0 ? priceData.volume24h / priceData.marketCap : 0;
 
+  // BUY: bullish OB touched + MSB upside (positive momentum, price in upper range)
+  // SELL: bearish OB touched + MSB downside (negative momentum, price in lower range)
+  const direction: "BUY" | "SELL" =
+    change24h > 0.5 || (priceInRange > 0.5 && change24h > -1) ? "BUY" : "SELL";
+
+  const entry = price;
+  let tp1: number;
+  let tp2: number;
+  let tp3: number;
+  let sl: number;
+  if (direction === "BUY") {
+    tp1 = entry * 1.02;
+    tp2 = entry * 1.05;
+    tp3 = entry * 1.1;
+    sl = entry * 0.98;
+  } else {
+    tp1 = entry * 0.98;
+    tp2 = entry * 0.95;
+    tp3 = entry * 0.9;
+    sl = entry * 1.02;
+  }
+
+  const reward = Math.abs(tp3 - entry);
+  const risk = Math.abs(entry - sl);
+  const rr = risk > 0 ? (reward / risk).toFixed(1) : "5.0";
+
   const bullishMomentum = change24h > 1.5 && priceInRange > 0.55;
   const highVolume = volumeRatio > 0.08;
   const trendConfirm = priceInRange > 0.6;
   const strongMomentum = change24h > 4;
 
-  // Base confidence 80–92% range; confluence boosts it toward 98%
+  // Base confidence 82–98%; SMC confluence boosts toward 98%
   let confidence = 80 + ((idx * 7 + Math.floor(price)) % 8);
   if (bullishMomentum) confidence += 8;
   if (highVolume) confidence += 7;
   if (trendConfirm) confidence += 5;
   if (strongMomentum) confidence += 5;
-  confidence = Math.min(98, confidence);
+  confidence = Math.max(
+    82,
+    Math.min(98, confidence + getDirectionBias(direction)),
+  );
 
-  let winRate = 80 + ((idx * 5 + Math.floor(price * 7)) % 8);
-  if (bullishMomentum) winRate += 6;
-  if (highVolume) winRate += 4;
+  // Elite signals: win rate 91-97%
+  let winRate = 91 + ((idx * 3 + Math.floor(price * 5)) % 5);
   winRate = Math.min(97, winRate);
 
-  const tags: string[] = ["4H BULL", "15M MSB", "CHoCH", "MSB"];
-  if (priceInRange > 0.5 || idx % 2 === 0) tags.push("OB");
-  if (highVolume || idx % 3 === 0) tags.push("FVG");
-  if (strongMomentum || idx % 5 === 0) tags.push("MSS");
+  // SMC Quantum V26: MSB and OB are ALWAYS required tags
+  const tags: string[] = ["MSB", "OB"];
+  if (priceInRange > 0.5 || idx % 2 === 0) tags.push("FVG");
   if (change24h > 2 || idx % 4 === 0) tags.push("Liquidity Sweep");
+  if (bullishMomentum || idx % 3 === 0) tags.push("CHoCH");
+  if (strongMomentum || idx % 5 === 0)
+    tags.push(direction === "BUY" ? "4H BULL" : "4H BEAR");
 
   const isGoldenSniperEligible =
     confidence > 95 &&
@@ -256,6 +356,7 @@ function buildSignal(
     confidence,
     isHiddenGem,
     trendAlignment: bullishMomentum ? "BULL" : change24h < -1 ? "BEAR" : "BULL",
+    direction,
     winRate,
     marketCapTier,
     isGoldenSniperEligible,
@@ -263,7 +364,6 @@ function buildSignal(
   };
 }
 
-/** Build fallback price data from static prices so signals can render on first load */
 function makeFallbackPriceData(symbol: string): TokenPrice {
   const price = FALLBACK_PRICES[symbol] ?? 1;
   return {
@@ -282,11 +382,9 @@ function makeFallbackPriceData(symbol: string): TokenPrice {
 export function useTokenData() {
   const [prices, setPrices] = useState<Record<string, TokenPrice>>({});
   const [signals, setSignals] = useState<Signal[]>(() => {
-    // Immediately load persisted signals to avoid timestamp reset & blank state
     const cache = loadSignalCache();
     const cached = Object.values(cache);
     if (cached.length > 0) return cached;
-    // On first ever load, seed from fallback prices so the list is never empty
     return TRACKED_SYMBOLS.map((symbol, idx) => {
       const fb = makeFallbackPriceData(symbol);
       return buildSignal(symbol, fb, idx, undefined);
@@ -332,48 +430,22 @@ export function useTokenData() {
     return () => clearInterval(interval);
   }, []);
 
+  // LOCKED refreshSignals: never rebuild an existing signal.
+  // Only generate a fresh signal if NO cached entry exists for that symbol.
   const refreshSignals = useCallback((priceMap: Record<string, TokenPrice>) => {
     let cacheChanged = false;
 
-    // 60-minute expiry: if entry zone was never touched, expire the signal
-    const SIGNAL_EXPIRY_MS = 60 * 60 * 1000; // 60 minutes
-    const ENTRY_ZONE_TOLERANCE = 0.03; // 3% — "entry zone hit" threshold
-
-    // ── ALWAYS generate a signal for EVERY tracked symbol ──────────────────
     const updated = TRACKED_SYMBOLS.map((s, i) => {
-      const priceData = priceMap[s] ?? makeFallbackPriceData(s);
       const existing = signalCache.current[s];
 
+      // LOCK: if signal already exists in cache, NEVER rebuild it
       if (existing) {
-        const age = Date.now() - existing.createdAt;
-        const entryZoneHit =
-          Math.abs(priceData.price - existing.entry) / existing.entry <=
-          ENTRY_ZONE_TOLERANCE;
-
-        // Expire normal signals after 60 min if entry zone was never hit
-        if (
-          age > SIGNAL_EXPIRY_MS &&
-          !entryZoneHit &&
-          !existing.isGoldenSniperEligible
-        ) {
-          // Remove from cache so a fresh signal is generated
-          delete signalCache.current[s];
-          cacheChanged = true;
-          const fresh = buildSignal(s, priceData, i, undefined);
-          signalCache.current[s] = fresh;
-          return fresh;
-        }
-
-        // Signal still valid — keep it STATIC (preserve Entry/TP/SL)
-        const drift =
-          Math.abs(priceData.price - existing.entry) / existing.entry;
-        if (drift < 0.05) {
-          return existing;
-        }
+        return existing;
       }
 
-      // Build new signal, preserving original createdAt timestamp
-      const fresh = buildSignal(s, priceData, i, existing?.createdAt);
+      // Only build a new signal if this symbol has no cached entry
+      const priceData = priceMap[s] ?? makeFallbackPriceData(s);
+      const fresh = buildSignal(s, priceData, i, undefined);
       signalCache.current[s] = fresh;
       cacheChanged = true;
       return fresh;
@@ -384,6 +456,45 @@ export function useTokenData() {
     }
 
     setSignals(updated);
+  }, []);
+
+  // Expire non-golden signals after 60 minutes if entry zone not touched
+  useEffect(() => {
+    const EXPIRY_MS = 60 * 60 * 1000;
+    const ZONE_TOL = 0.03;
+    const check = () => {
+      const priceSnapshot = prevPrices.current;
+      let changed = false;
+      for (const s of TRACKED_SYMBOLS) {
+        const sig = signalCache.current[s];
+        if (!sig || sig.isGoldenSniperEligible) continue;
+        const age = Date.now() - sig.createdAt;
+        const currentPrice = priceSnapshot[s];
+        if (!currentPrice) continue;
+        const entryZoneHit =
+          Math.abs(currentPrice - sig.entry) / sig.entry <= ZONE_TOL;
+        if (age > EXPIRY_MS && !entryZoneHit) {
+          delete signalCache.current[s];
+          changed = true;
+        }
+      }
+      if (changed) {
+        saveSignalCache(signalCache.current);
+        // Rebuild only expired symbols
+        setSignals(
+          TRACKED_SYMBOLS.map((s, i) => {
+            if (signalCache.current[s]) return signalCache.current[s];
+            const fb = makeFallbackPriceData(s);
+            const fresh = buildSignal(s, fb, i, undefined);
+            signalCache.current[s] = fresh;
+            return fresh;
+          }),
+        );
+        saveSignalCache(signalCache.current);
+      }
+    };
+    const iv = setInterval(check, 60_000);
+    return () => clearInterval(iv);
   }, []);
 
   useEffect(() => {
@@ -410,7 +521,6 @@ export function useTokenData() {
         for (const tick of data) {
           if (!TRACKED_SYMBOLS.includes(tick.s)) continue;
           const newPrice = Number.parseFloat(tick.c);
-          // Reject clearly invalid prices (0 or negative)
           if (!newPrice || newPrice <= 0) continue;
           const prev = prevPrices.current[tick.s];
           let direction: "up" | "down" | "neutral" = "neutral";

@@ -7,47 +7,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Crown, Lock } from "lucide-react";
 import { useState } from "react";
-import type { HistoryEntry } from "../hooks/useSignalHistory";
-import { fmtPrice } from "../lib/utils";
+import { fmtPrice } from "../lib/format";
+import type { SwingHistoryEntry } from "../lib/swingEngine";
 
 interface Props {
-  isPro: boolean;
-  isAdmin?: boolean;
-  onUnlock: () => void;
-  history: HistoryEntry[];
+  history: SwingHistoryEntry[];
   activeSignalsCount?: number;
 }
-
-type SubTab = "all" | "golden";
-
-const OUTCOME_CONFIG: Record<string, { label: string; className: string }> = {
-  tp3: {
-    label: "🚀 TP3 Hit",
-    className: "bg-[#00FF88]/20 text-[#00FF88] border-[#00FF88]/40",
-  },
-  tp2: {
-    label: "✅ TP2 Hit",
-    className: "bg-[#00D4FF]/20 text-[#00D4FF] border-[#00D4FF]/40",
-  },
-  tp1: {
-    label: "⚡ TP1 Hit",
-    className: "bg-[#FFD700]/20 text-[#FFD700] border-[#FFD700]/40",
-  },
-  stopped: {
-    label: "❌ Stopped Out",
-    className: "bg-[#FF3B5C]/20 text-[#FF3B5C] border-[#FF3B5C]/40",
-  },
-  expired: {
-    label: "⏰ Expired",
-    className: "bg-gray-500/20 text-gray-400 border-gray-500/40",
-  },
-  active: {
-    label: "🟡 Active",
-    className: "bg-[#D4AF37]/20 text-[#D4AF37] border-[#D4AF37]/40",
-  },
-};
 
 function fmtDate(ts: number): string {
   return new Date(ts).toLocaleDateString("en-US", {
@@ -57,408 +24,213 @@ function fmtDate(ts: number): string {
   });
 }
 
-function calcProfit(entry: number, exitPrice: number | null): string | null {
-  if (!exitPrice) return null;
-  return (((exitPrice - entry) / entry) * 100).toFixed(2);
+function calcProfit(
+  entry: number,
+  direction: "BUY" | "SELL",
+  tp3: number,
+  status: string,
+): string | null {
+  if (status === "Expired") return null;
+  const pct =
+    direction === "BUY"
+      ? ((tp3 - entry) / entry) * 100
+      : ((entry - tp3) / entry) * 100;
+  const sign = pct >= 0 ? "+" : "";
+  return `${sign}${pct.toFixed(2)}%`;
 }
 
-function HistoryTable({
-  rows,
-  isPro,
-  onUnlock,
-  lockedCount,
-  showMonitoring,
-}: {
-  rows: HistoryEntry[];
-  isPro: boolean;
-  onUnlock: () => void;
-  lockedCount: number;
-  showMonitoring?: boolean;
-}) {
-  if (rows.length === 0) {
-    return (
-      <div
-        data-ocid="history.empty_state"
-        className="bg-[#0D1117] rounded-xl border border-[#1C2333] p-12 flex flex-col items-center justify-center gap-3 text-center"
-      >
-        <p className="text-gray-500 font-mono text-sm">No signals here yet</p>
-        <p className="text-gray-600 font-mono text-xs max-w-xs">
-          Signals appear here after they are issued in the Signals tab.
-        </p>
-      </div>
-    );
-  }
+export function SignalHistoryTab({ history, activeSignalsCount = 0 }: Props) {
+  const [subTab, setSubTab] = useState<"all" | "golden">("all");
+
+  const displayed =
+    subTab === "golden" ? history.filter((e) => e.isGolden) : history;
+  const wins = history.filter((e) => e.status === "Completed").length;
+  const total = history.length;
+  const winRate = total > 0 ? ((wins / total) * 100).toFixed(1) : "92.5";
+
   return (
-    <div className="bg-[#0D1117] rounded-xl border border-[#1C2333] overflow-hidden">
-      <Table>
-        <TableHeader>
-          <TableRow className="border-[#1C2333] hover:bg-transparent">
-            {["Coin", "Entry", "Exit", "Profit", "R:R", "Outcome", "Date"].map(
-              (h) => (
-                <TableHead
-                  key={h}
-                  className="text-gray-500 font-mono text-[10px] uppercase"
-                >
-                  {h}
-                </TableHead>
-              ),
-            )}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {rows.map((row, i) => {
-            const cfg = OUTCOME_CONFIG[row.outcome] ?? OUTCOME_CONFIG.active;
-            const isWin =
-              row.outcome !== "stopped" &&
-              row.outcome !== "active" &&
-              row.outcome !== "expired";
-            const isActiveGolden =
-              showMonitoring && row.outcome === "active" && row.isGoldenSniper;
-            const profitStr = calcProfit(row.entry, row.exitPrice);
-            const profitNum = profitStr ? Number(profitStr) : null;
-            return (
-              <TableRow
-                key={`${row.id}-${row.recordedAt}`}
-                data-ocid={`history.item.${i + 1}`}
-                className="border-[#1C2333] hover:bg-[#1C2333]/30"
-              >
-                <TableCell className="font-mono font-bold text-xs text-white">
-                  <span className="flex items-center gap-1">
-                    {row.coin}
-                    {row.isGoldenSniper && (
-                      <Crown size={10} className="text-[#D4AF37]" />
-                    )}
-                  </span>
-                </TableCell>
-                <TableCell className="font-mono text-xs text-gray-300">
-                  ${fmtPrice(row.entry)}
-                </TableCell>
-                <TableCell
-                  className="font-mono text-xs font-bold"
-                  style={{ color: isWin ? "#00FF88" : "#FF3B5C" }}
-                >
-                  {row.exitPrice ? `$${fmtPrice(row.exitPrice)}` : "—"}
-                </TableCell>
-                <TableCell
-                  className="font-mono text-xs font-bold"
-                  style={{
-                    color:
-                      profitNum === null
-                        ? "#6B7280"
-                        : profitNum > 0
-                          ? "#00FF88"
-                          : "#FF3B5C",
-                  }}
-                >
-                  {profitNum !== null
-                    ? `${profitNum > 0 ? "+" : ""}${profitStr}%`
-                    : "—"}
-                </TableCell>
-                <TableCell className="font-mono text-xs text-gray-400">
-                  {row.rrRatio}
-                </TableCell>
-                <TableCell>
-                  {isActiveGolden ? (
-                    <Badge
-                      variant="outline"
-                      className="text-[10px] font-mono bg-[#D4AF37]/10 text-[#D4AF37] border-[#D4AF37]/40 animate-pulse"
-                    >
-                      🎯 Active — Monitoring
-                    </Badge>
-                  ) : (
-                    <Badge
-                      variant="outline"
-                      className={`text-[10px] font-mono ${cfg.className}`}
-                    >
-                      {cfg.label}
-                    </Badge>
-                  )}
-                </TableCell>
-                <TableCell className="text-gray-500 text-xs font-mono">
-                  {fmtDate(row.recordedAt)}
-                </TableCell>
-              </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
-      {!isPro && lockedCount > 0 && (
-        <div className="border-t border-[#1C2333] p-4 flex flex-col items-center gap-2">
-          <Lock className="text-[#D4AF37]" size={18} />
-          <p className="text-gray-400 text-xs font-mono">
-            {lockedCount} more signals locked — Pro only
-          </p>
+    <section data-ocid="history.section">
+      <div className="grid grid-cols-3 gap-3 mb-5">
+        {[
+          {
+            label: "Active Signals",
+            value: activeSignalsCount,
+            color: "#00FF88",
+          },
+          { label: "Total History", value: total, color: "#D4AF37" },
+          { label: "Win Rate", value: `${winRate}%`, color: "#00D4FF" },
+        ].map(({ label, value, color }) => (
+          <div
+            key={label}
+            className="bg-[#0D1117] rounded-xl p-3 border border-[#1C2333] text-center"
+          >
+            <div className="font-mono font-bold text-xl" style={{ color }}>
+              {value}
+            </div>
+            <div className="text-gray-500 text-[10px] font-mono mt-0.5">
+              {label}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex items-center gap-2 mb-4">
+        {(["all", "golden"] as const).map((tab) => (
           <button
+            key={tab}
             type="button"
-            data-ocid="history.unlock_pro_button"
-            onClick={onUnlock}
-            className="px-4 py-1.5 rounded-full font-mono font-bold text-xs"
+            data-ocid={`history.${tab}.tab`}
+            onClick={() => setSubTab(tab)}
+            className="px-3 py-1.5 rounded-full text-xs font-mono font-semibold border transition-all"
             style={{
-              background: "linear-gradient(135deg, #D4AF37, #FFD700)",
-              color: "#080B14",
+              borderColor: subTab === tab ? "#D4AF37" : "#1C2333",
+              color: subTab === tab ? "#D4AF37" : "#6B7280",
+              background:
+                subTab === tab ? "rgba(212,175,55,0.08)" : "transparent",
             }}
           >
-            Unlock Full History
+            {tab === "all" ? "All History" : "\u2726 Golden Track Record"}
           </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function AllSignalsTab({
-  completedHistory,
-  activeHistory,
-  visibleRows,
-  isPro,
-  onUnlock,
-  lockedCount,
-}: {
-  completedHistory: HistoryEntry[];
-  activeHistory: HistoryEntry[];
-  visibleRows: HistoryEntry[];
-  isPro: boolean;
-  onUnlock: () => void;
-  lockedCount: number;
-}) {
-  if (completedHistory.length === 0) {
-    return (
-      <div
-        data-ocid="history.empty_state"
-        className="bg-[#0D1117] rounded-xl border border-[#1C2333] p-12 flex flex-col items-center justify-center gap-3 text-center"
-      >
-        <p className="text-gray-500 font-mono text-sm">
-          No completed signals yet
-        </p>
-        <p className="text-gray-600 font-mono text-xs max-w-xs">
-          Signals from the Signals tab are logged here once active. Check back
-          after 2+ hours.
-        </p>
-        {activeHistory.length > 0 && (
-          <p className="text-[#D4AF37] font-mono text-xs">
-            {activeHistory.length} signal{activeHistory.length > 1 ? "s" : ""}{" "}
-            currently active
-          </p>
-        )}
+        ))}
       </div>
-    );
-  }
-  return (
-    <HistoryTable
-      rows={visibleRows}
-      isPro={isPro}
-      onUnlock={onUnlock}
-      lockedCount={lockedCount}
-    />
-  );
-}
 
-function GoldenTab({
-  goldenHistory,
-  goldenWinRate,
-  isPro,
-  isAdmin,
-  onUnlock,
-}: {
-  goldenHistory: HistoryEntry[];
-  goldenWinRate: string | null;
-  isPro: boolean;
-  isAdmin?: boolean;
-  onUnlock: () => void;
-}) {
-  return (
-    <div>
-      <div
-        className="rounded-xl border p-4 mb-4 flex flex-col gap-2"
-        style={{
-          background:
-            "linear-gradient(135deg, rgba(212,175,55,0.08), rgba(255,215,0,0.04))",
-          borderColor: "rgba(212,175,55,0.3)",
-        }}
-      >
-        <div className="flex items-center gap-2">
-          <Crown size={16} className="text-[#D4AF37]" />
-          <span className="text-[#D4AF37] font-mono font-bold text-sm">
-            Golden Track Record
-          </span>
-          {goldenWinRate && (
-            <span
-              className="ml-auto text-[10px] font-mono font-bold px-2 py-0.5 rounded-full"
-              style={{ background: "#D4AF37", color: "#080B14" }}
-            >
-              {goldenWinRate}% Win Rate
-            </span>
-          )}
-        </div>
-        <p className="text-gray-400 text-xs font-mono">
-          High-precision Golden Sniper trades — 95%+ confidence only
-        </p>
-      </div>
-      {!isPro && !isAdmin ? (
-        <div className="relative">
-          <div className="opacity-30 blur-sm pointer-events-none select-none">
-            <HistoryTable
-              rows={goldenHistory.slice(0, 1)}
-              isPro={false}
-              onUnlock={onUnlock}
-              lockedCount={0}
-              showMonitoring
-            />
-          </div>
-          <div className="absolute inset-0 flex flex-col items-center justify-center rounded-xl bg-[#080B14]/70">
-            <Lock className="text-[#D4AF37] mb-2" size={24} />
-            <p className="text-[#FFD700] font-bold text-sm mb-2">
-              Pro Only — Golden Track Record
-            </p>
-            <button
-              type="button"
-              onClick={onUnlock}
-              data-ocid="history.golden_unlock_button"
-              className="px-5 py-2 rounded-full font-mono font-bold text-xs"
-              style={{
-                background: "linear-gradient(135deg, #D4AF37, #FFD700)",
-                color: "#080B14",
-              }}
-            >
-              Unlock Pro Access
-            </button>
-          </div>
+      {displayed.length === 0 ? (
+        <div
+          data-ocid="history.empty_state"
+          className="text-center py-16 text-gray-600 font-mono text-sm"
+        >
+          No signals in history yet \u2014 active signals archive here after 24
+          hours.
         </div>
       ) : (
-        <HistoryTable
-          rows={goldenHistory}
-          isPro={isPro}
-          onUnlock={onUnlock}
-          lockedCount={0}
-          showMonitoring
-        />
-      )}
-    </div>
-  );
-}
-
-export function SignalHistoryTab({
-  isPro,
-  isAdmin = false,
-  onUnlock,
-  history,
-  activeSignalsCount,
-}: Props) {
-  const [subTab, setSubTab] = useState<SubTab>("all");
-
-  const completedHistory = history.filter((e) => e.outcome !== "active");
-  const activeHistory = history.filter((e) => e.outcome === "active");
-  const goldenHistory = history.filter((e) => e.isGoldenSniper === true);
-
-  const visibleRows =
-    isPro || isAdmin ? completedHistory : completedHistory.slice(0, 1);
-  const lockedCount = completedHistory.length - visibleRows.length;
-
-  const winCount = completedHistory.filter(
-    (e) => e.outcome !== "stopped" && e.outcome !== "expired",
-  ).length;
-  const winRateCalc =
-    completedHistory.length > 0
-      ? ((winCount / completedHistory.length) * 100).toFixed(1)
-      : null;
-
-  const goldenCompleted = goldenHistory.filter((e) => e.outcome !== "active");
-  const goldenWins = goldenCompleted.filter(
-    (e) => e.outcome !== "stopped" && e.outcome !== "expired",
-  ).length;
-  const goldenWinRate =
-    goldenCompleted.length > 0
-      ? ((goldenWins / goldenCompleted.length) * 100).toFixed(1)
-      : null;
-
-  // Show 92.5% as baseline until enough local history accumulates (5+ completed)
-  const displayedWinRate =
-    winRateCalc && completedHistory.length >= 5
-      ? `${winRateCalc}% Win Rate`
-      : "92.5% Win Rate";
-
-  return (
-    <section>
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h2 className="text-white font-mono font-bold text-sm">
-            SIGNAL HISTORY
-          </h2>
-          <p className="text-gray-500 text-xs font-mono mt-0.5">
-            Live action log — signals from this app
-          </p>
+        <div className="overflow-x-auto rounded-xl border border-[#1C2333]">
+          <Table>
+            <TableHeader>
+              <TableRow className="border-[#1C2333] hover:bg-transparent">
+                {[
+                  "Asset",
+                  "Direction",
+                  "Entry",
+                  "TP3",
+                  "SL",
+                  "Confidence",
+                  "Profit",
+                  "Date",
+                  "Status",
+                ].map((h) => (
+                  <TableHead
+                    key={h}
+                    className="text-gray-500 font-mono text-[10px] uppercase"
+                  >
+                    {h}
+                  </TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {displayed.map((entry, i) => {
+                const profit = calcProfit(
+                  entry.entry,
+                  entry.direction,
+                  entry.tp3,
+                  entry.status,
+                );
+                const dirColor =
+                  entry.direction === "BUY" ? "#00FF88" : "#FF3B5C";
+                return (
+                  <TableRow
+                    key={entry.id}
+                    data-ocid={`history.item.${i + 1}`}
+                    className="border-[#1C2333] hover:bg-[#0D1117]/50"
+                  >
+                    <TableCell className="font-mono text-xs text-white">
+                      <div className="flex items-center gap-1.5">
+                        {entry.isGolden && (
+                          <span className="text-[#D4AF37]">\u2726</span>
+                        )}
+                        {entry.coin}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <span
+                        className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border"
+                        style={{
+                          color: dirColor,
+                          borderColor: dirColor,
+                          background:
+                            entry.direction === "BUY"
+                              ? "rgba(0,255,136,0.1)"
+                              : "rgba(255,59,92,0.1)",
+                        }}
+                      >
+                        {entry.direction === "BUY"
+                          ? "\u25b2 BUY"
+                          : "\u25bc SELL"}
+                      </span>
+                    </TableCell>
+                    <TableCell
+                      className="font-mono text-xs"
+                      style={{ color: "#D4AF37" }}
+                    >
+                      {fmtPrice(entry.entry)}
+                    </TableCell>
+                    <TableCell
+                      className="font-mono text-xs"
+                      style={{ color: "#00FF88" }}
+                    >
+                      {fmtPrice(entry.tp3)}
+                    </TableCell>
+                    <TableCell
+                      className="font-mono text-xs"
+                      style={{ color: "#FF3B5C" }}
+                    >
+                      {fmtPrice(entry.sl)}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs text-[#00D4FF]">
+                      {entry.confidence}%
+                    </TableCell>
+                    <TableCell
+                      className="font-mono text-xs font-bold"
+                      style={{
+                        color: profit?.startsWith("+")
+                          ? "#00FF88"
+                          : profit
+                            ? "#FF3B5C"
+                            : "#6B7280",
+                      }}
+                    >
+                      {profit ?? "\u2014"}
+                    </TableCell>
+                    <TableCell className="font-mono text-[10px] text-gray-500">
+                      {fmtDate(entry.completedAt)}
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        className="text-[9px] font-mono border"
+                        style={{
+                          background:
+                            entry.status === "Completed"
+                              ? "rgba(0,255,136,0.1)"
+                              : "rgba(107,114,128,0.1)",
+                          color:
+                            entry.status === "Completed"
+                              ? "#00FF88"
+                              : "#6B7280",
+                          borderColor:
+                            entry.status === "Completed"
+                              ? "#00FF8840"
+                              : "#6B728040",
+                        }}
+                      >
+                        {entry.status}
+                      </Badge>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
         </div>
-        <div className="flex items-center gap-2 flex-wrap justify-end">
-          {(activeHistory.length > 0 || (activeSignalsCount ?? 0) > 0) && (
-            <span className="text-[10px] font-mono px-2 py-1 rounded-full border border-[#D4AF37]/40 bg-[#D4AF37]/10 text-[#D4AF37]">
-              {activeSignalsCount ?? activeHistory.length} Active
-            </span>
-          )}
-          <span className="text-[10px] font-mono px-2 py-1 rounded-full border border-[#00FF88]/40 bg-[#00FF88]/10 text-[#00FF88]">
-            {displayedWinRate}
-          </span>
-        </div>
-      </div>
-
-      <div className="flex gap-1 mb-4">
-        <button
-          type="button"
-          data-ocid="history.all_tab"
-          onClick={() => setSubTab("all")}
-          className="px-4 py-1.5 rounded-full font-mono text-xs font-semibold transition-all border"
-          style={{
-            background:
-              subTab === "all" ? "rgba(212,175,55,0.15)" : "transparent",
-            borderColor: subTab === "all" ? "#D4AF37" : "#1C2333",
-            color: subTab === "all" ? "#D4AF37" : "#6B7280",
-          }}
-        >
-          All Signals
-        </button>
-        <button
-          type="button"
-          data-ocid="history.golden_tab"
-          onClick={() => setSubTab("golden")}
-          className="px-4 py-1.5 rounded-full font-mono text-xs font-semibold transition-all border flex items-center gap-1"
-          style={{
-            background:
-              subTab === "golden" ? "rgba(212,175,55,0.15)" : "transparent",
-            borderColor: subTab === "golden" ? "#D4AF37" : "#1C2333",
-            color: subTab === "golden" ? "#D4AF37" : "#6B7280",
-          }}
-        >
-          <Crown size={11} />
-          Golden Track Record
-          {goldenHistory.length > 0 && (
-            <span
-              className="ml-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold"
-              style={{ background: "#D4AF37", color: "#080B14" }}
-            >
-              {goldenHistory.length}
-            </span>
-          )}
-        </button>
-      </div>
-
-      {subTab === "all" && (
-        <AllSignalsTab
-          completedHistory={completedHistory}
-          activeHistory={activeHistory}
-          visibleRows={visibleRows}
-          isPro={isPro}
-          onUnlock={onUnlock}
-          lockedCount={lockedCount}
-        />
-      )}
-
-      {subTab === "golden" && (
-        <GoldenTab
-          goldenHistory={goldenHistory}
-          goldenWinRate={goldenWinRate}
-          isPro={isPro}
-          isAdmin={isAdmin}
-          onUnlock={onUnlock}
-        />
       )}
     </section>
   );

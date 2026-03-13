@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Signal } from "./useTokenData";
+import { recordAIOutcome } from "./useTokenData";
 
 export interface HistoryEntry {
   id: string;
@@ -23,6 +24,7 @@ export interface HistoryEntry {
   tp3HitAt?: number | null;
   slHitAt?: number | null;
   manuallyClosedAt?: number | null;
+  direction?: "BUY" | "SELL";
 }
 
 const HISTORY_KEY = "ts_signal_history_v3";
@@ -111,6 +113,13 @@ export function useSignalHistory() {
                 manuallyClosedAt: e.manuallyClosedAt,
               },
             );
+            // Record AI outcome if status transitioned from active to resolved
+            if (outcome !== "active" && outcome !== "expired") {
+              const dir = e.direction ?? "BUY";
+              const isWin =
+                outcome === "tp1" || outcome === "tp2" || outcome === "tp3";
+              recordAIOutcome(dir, isWin);
+            }
             return { ...e, outcome, exitPrice };
           }
           return e;
@@ -168,6 +177,7 @@ export function useSignalHistory() {
             tp3HitAt: null,
             slHitAt: null,
             manuallyClosedAt: null,
+            direction: signal.direction,
           });
         }
       }
@@ -210,30 +220,44 @@ export function useSignalHistory() {
 
       let changed = false;
       const updated = prev.map((e) => {
+        const prevOutcome: HistoryEntry["outcome"] = e.outcome;
         if (e.outcome !== "active" || !e.isGoldenSniper) return e;
         const currentPrice = priceMap[e.symbol];
         if (currentPrice === undefined) return e;
 
         let entry = { ...e };
+        const isBuy = (e.direction ?? "BUY") === "BUY";
 
         // Check SL first — immediate close
-        if (!entry.slHitAt && currentPrice <= e.sl) {
-          entry = { ...entry, slHitAt: Date.now() };
-          changed = true;
+        if (!entry.slHitAt) {
+          const slHit = isBuy ? currentPrice <= e.sl : currentPrice >= e.sl;
+          if (slHit) {
+            entry = { ...entry, slHitAt: Date.now() };
+            changed = true;
+          }
         }
 
-        // Check TPs in ascending order (only set if not already set)
-        if (!entry.tp1HitAt && currentPrice >= e.tp1) {
-          entry = { ...entry, tp1HitAt: Date.now() };
-          changed = true;
+        // Check TPs in order (TP direction depends on BUY vs SELL)
+        if (!entry.tp1HitAt) {
+          const tp1Hit = isBuy ? currentPrice >= e.tp1 : currentPrice <= e.tp1;
+          if (tp1Hit) {
+            entry = { ...entry, tp1HitAt: Date.now() };
+            changed = true;
+          }
         }
-        if (!entry.tp2HitAt && currentPrice >= e.tp2) {
-          entry = { ...entry, tp2HitAt: Date.now() };
-          changed = true;
+        if (!entry.tp2HitAt) {
+          const tp2Hit = isBuy ? currentPrice >= e.tp2 : currentPrice <= e.tp2;
+          if (tp2Hit) {
+            entry = { ...entry, tp2HitAt: Date.now() };
+            changed = true;
+          }
         }
-        if (!entry.tp3HitAt && currentPrice >= e.tp3) {
-          entry = { ...entry, tp3HitAt: Date.now() };
-          changed = true;
+        if (!entry.tp3HitAt) {
+          const tp3Hit = isBuy ? currentPrice >= e.tp3 : currentPrice <= e.tp3;
+          if (tp3Hit) {
+            entry = { ...entry, tp3HitAt: Date.now() };
+            changed = true;
+          }
         }
 
         // Recompute outcome with updated hit timestamps
@@ -253,6 +277,18 @@ export function useSignalHistory() {
             manuallyClosedAt: entry.manuallyClosedAt,
           },
         );
+
+        // Wire AI outcome recording when status resolves
+        if (
+          outcome !== prevOutcome &&
+          outcome !== "active" &&
+          outcome !== "expired"
+        ) {
+          const dir = entry.direction ?? "BUY";
+          const isWin =
+            outcome === "tp1" || outcome === "tp2" || outcome === "tp3";
+          recordAIOutcome(dir, isWin);
+        }
 
         if (outcome !== e.outcome || exitPrice !== e.exitPrice) {
           changed = true;

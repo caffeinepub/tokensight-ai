@@ -1,7 +1,6 @@
 import { Toaster } from "@/components/ui/sonner";
 import { BarChart2, History, LayoutDashboard, Radio } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
+import { useEffect, useState } from "react";
 import { AdminPanel } from "./components/AdminPanel";
 import { AlphaSection } from "./components/AlphaSection";
 import { DashboardTab } from "./components/DashboardTab";
@@ -9,17 +8,15 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Header } from "./components/Header";
 import { SignalHistoryTab } from "./components/SignalHistoryTab";
 import { SocialSection } from "./components/SocialSection";
-import { SuccessBadge } from "./components/SuccessBadge";
-import { UnlockProModal } from "./components/UnlockProModal";
 import { WhaleTicker } from "./components/WhaleTicker";
-import { useICPWallet } from "./hooks/useICPWallet";
-import { usePremium } from "./hooks/usePremium";
-import type { HistoryEntry } from "./hooks/useSignalHistory";
-import { useSignalHistory } from "./hooks/useSignalHistory";
 import { useTokenData } from "./hooks/useTokenData";
-
-export const ADMIN_PRINCIPAL =
-  "sg5zb-fsg2l-xim4d-64w2p-lsqq3-6awgd-r7pzw-lekky-wzoyu-367qv-vae";
+import type { SwingHistoryEntry, SwingSignal } from "./lib/swingEngine";
+import {
+  getActiveSignals,
+  getHistory,
+  initSwingEngine,
+} from "./lib/swingEngine";
+import { getWsStatus, initLiveFeed } from "./lib/wsLiveFeed";
 
 type TabId = "dashboard" | "signals" | "social" | "history";
 
@@ -30,56 +27,52 @@ const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: "history", label: "History", icon: History },
 ];
 
+export const ADMIN_PRINCIPAL =
+  "sg5zb-fsg2l-xim4d-64w2p-lsqq3-6awgd-r7pzw-lekky-wzoyu-367qv-vae";
+
 const IS_ADMIN =
   window.location.pathname === "/admin" ||
   window.location.pathname === "/tokensight-admin";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
-  const [showModal, setShowModal] = useState(false);
-  const { isPro, isAdminAccess, unlockPro, grantAdminAccess } = usePremium();
-  const { prices, signals, connected, scanningForGoldenSniper } =
-    useTokenData();
-  const { history, recordSignals, manualClose, updateSignalPrices } =
-    useSignalHistory();
-  const { walletState } = useICPWallet();
-  const recordedRef = useRef(false);
-  const adminGrantedRef = useRef(false);
+  const [signals, setSignals] = useState<SwingSignal[]>([]);
+  const [history, setHistory] = useState<SwingHistoryEntry[]>([]);
+  const [wsStatus, setWsStatus] = useState<
+    "connecting" | "live" | "disconnected"
+  >("connecting");
+  const [lastTickAt, setLastTickAt] = useState<number>(0);
+  const { prices, connected } = useTokenData();
 
+  // Init swing engine + WebSocket live feed
   useEffect(() => {
-    if (signals.length > 0 && !recordedRef.current) {
-      recordedRef.current = true;
-      recordSignals(signals);
-    }
-  }, [signals, recordSignals]);
+    initSwingEngine();
+    setSignals([...getActiveSignals()]);
+    setHistory([...getHistory()]);
 
-  // Wire live prices to signal history for Golden Sniper monitoring
+    initLiveFeed((_symbol, _price, _changePct) => {
+      setLastTickAt(Date.now());
+    });
+  }, []);
+
+  // Poll signals every 5 seconds
   useEffect(() => {
-    if (Object.keys(prices).length > 0) {
-      const priceMap: Record<string, number> = {};
-      for (const [sym, data] of Object.entries(prices)) {
-        priceMap[sym] = data.price;
-      }
-      updateSignalPrices(priceMap);
-    }
-  }, [prices, updateSignalPrices]);
+    const id = setInterval(() => {
+      setSignals([...getActiveSignals()]);
+      setHistory([...getHistory()]);
+    }, 5_000);
+    return () => clearInterval(id);
+  }, []);
 
-  // Super Admin Bypass: grant pro access when admin principal connects
+  // Poll WS status every second
   useEffect(() => {
-    if (
-      walletState.principal &&
-      walletState.principal === ADMIN_PRINCIPAL &&
-      !adminGrantedRef.current
-    ) {
-      adminGrantedRef.current = true;
-      grantAdminAccess();
-      toast.success("⚡ Admin Access Granted", {
-        description: "Full Pro access enabled for admin principal.",
-        duration: 5000,
-      });
-    }
-  }, [walletState.principal, grantAdminAccess]);
+    const id = setInterval(() => {
+      setWsStatus(getWsStatus());
+    }, 1_000);
+    return () => clearInterval(id);
+  }, []);
 
+  // Track visits
   useEffect(() => {
     try {
       const visitKey = "ts_visit_count";
@@ -99,65 +92,20 @@ export default function App() {
     } catch {}
   }, []);
 
-  useEffect(() => {
-    try {
-      if (isPro) localStorage.setItem("ts_pro_user_count", "1");
-    } catch {}
-  }, [isPro]);
-
-  const activeSignals = history.filter((e) => e.outcome === "active");
-
-  // Find the golden sniper history entry for the current active golden signal
-  const goldenSniperSignal = signals.find((s) => s.isGoldenSniperEligible);
-  const goldenHistoryEntry: HistoryEntry | null = goldenSniperSignal
-    ? (history.find(
-        (e) =>
-          e.id === goldenSniperSignal.id &&
-          e.isGoldenSniper === true &&
-          e.outcome === "active",
-      ) ?? null)
-    : null;
-
   if (IS_ADMIN)
     return (
       <AdminPanel
-        connectedPrincipal={walletState.principal}
-        activeSignals={activeSignals}
-        onManualClose={manualClose}
+        connectedPrincipal={null}
+        activeSignals={[]}
+        onManualClose={() => {}}
       />
     );
-
-  const proUserCount = isPro ? 1 : 0;
 
   return (
     <ErrorBoundary>
       <div className="min-h-screen bg-[#080B14] text-white">
-        <Header onUnlockPro={() => setShowModal(true)} />
-        {walletState.connecting && (
-          <div className="bg-[#D4AF37]/10 border-b border-[#D4AF37]/20 py-1.5 px-4 text-center flex items-center justify-center gap-2">
-            <span className="w-3 h-3 rounded-full border-2 border-[#D4AF37] border-t-transparent animate-spin inline-block" />
-            <span className="text-[#D4AF37] font-mono text-[10px]">
-              {walletState.walletType
-                ? "Connecting wallet..."
-                : "Refreshing live data..."}
-            </span>
-          </div>
-        )}
+        <Header wsStatus={wsStatus} lastTickAt={lastTickAt} />
         <WhaleTicker />
-
-        {isAdminAccess && (
-          <div
-            data-ocid="app.admin_access_banner"
-            className="bg-[#D4AF37]/10 border-b border-[#D4AF37]/30 py-1.5 px-4 text-center"
-          >
-            <span className="text-[#FFD700] font-mono text-xs font-bold">
-              ⚡ ADMIN ACCESS ACTIVE — Full Pro enabled for principal{" "}
-              <span className="text-[#D4AF37]/70">
-                {ADMIN_PRINCIPAL.slice(0, 20)}…
-              </span>
-            </span>
-          </div>
-        )}
 
         <div className="sticky top-14 z-30 bg-[#080B14]/95 backdrop-blur-md border-b border-[#1C2333]">
           <div className="max-w-7xl mx-auto px-3 md:px-6">
@@ -190,30 +138,18 @@ export default function App() {
             <DashboardTab
               prices={prices}
               connected={connected}
-              history={history}
-              proUserCount={proUserCount}
+              history={[]}
+              proUserCount={0}
               signalCount={signals.length}
               activeSignalsCount={signals.length}
             />
           )}
-          {activeTab === "signals" && (
-            <AlphaSection
-              signals={signals}
-              isPro={isPro}
-              onUnlock={() => setShowModal(true)}
-              scanningForGoldenSniper={scanningForGoldenSniper}
-              goldenHistoryEntry={goldenHistoryEntry}
-              isAdmin={isAdminAccess}
-            />
-          )}
+          {activeTab === "signals" && <AlphaSection signals={signals} />}
           {activeTab === "social" && (
-            <SocialSection isPro={isPro} onUnlock={() => setShowModal(true)} />
+            <SocialSection isPro={true} onUnlock={() => {}} />
           )}
           {activeTab === "history" && (
             <SignalHistoryTab
-              isPro={isPro}
-              isAdmin={isAdminAccess}
-              onUnlock={() => setShowModal(true)}
               history={history}
               activeSignalsCount={signals.length}
             />
@@ -235,12 +171,6 @@ export default function App() {
           </p>
         </footer>
 
-        <UnlockProModal
-          open={showModal}
-          onClose={() => setShowModal(false)}
-          onUnlock={unlockPro}
-        />
-        <SuccessBadge />
         <Toaster />
       </div>
     </ErrorBoundary>

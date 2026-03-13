@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { HistoryEntry } from "../hooks/useSignalHistory";
 import type { TokenPrice } from "../hooks/useTokenData";
 import { COIN_NAMES, TRACKED_SYMBOLS } from "../hooks/useTokenData";
-import { fmtPrice } from "../lib/utils";
+import { fmtPrice } from "../lib/format";
 import { SentimentGauge } from "./SentimentGauge";
 
 interface Props {
@@ -38,14 +38,9 @@ const COIN_COLORS: Record<string, string> = {
   NEARUSDT: "#00C08B",
 };
 
-/**
- * Format price for display.
- * - Below $1: 8 decimal places so micro-prices (SHIB, PEPE) show correctly.
- * - $1 and above: 2 decimal places with thousands separator.
- */
 function fmt(n: number, lastKnown?: number): string {
   const v = !n || Number.isNaN(n) || n <= 0 ? (lastKnown ?? 0) : n;
-  if (v <= 0) return "—";
+  if (v <= 0) return "\u2014";
   if (v >= 1) {
     return v.toLocaleString("en-US", {
       minimumFractionDigits: 2,
@@ -69,6 +64,12 @@ interface FearGreed {
   label: string;
 }
 
+/** Get live WS price for a symbol from global state */
+function getWsPrice(symbol: string): number | null {
+  const p = (window as Window).TS_ULTRA_STATE?.livePrices?.[symbol];
+  return p && p > 0 ? p : null;
+}
+
 export function DashboardTab({
   prices,
   connected,
@@ -79,15 +80,49 @@ export function DashboardTab({
 }: Props) {
   const [fearGreed, setFearGreed] = useState<FearGreed | null>(null);
   const [fgLoading, setFgLoading] = useState(true);
+  // Track which symbols had price updates for flash effect
+  const [flashMap, setFlashMap] = useState<
+    Record<string, "up" | "down" | null>
+  >({});
+  const prevPricesRef = useRef<Record<string, number>>({});
+  const flashTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>(
+    {},
+  );
   const loadedCount = TRACKED_SYMBOLS.filter((s) => prices[s]).length;
   const lastKnownPricesRef = useRef<Record<string, number>>({});
 
-  // Keep lastKnownPrices updated with real prices
+  // Update last known prices
   useEffect(() => {
     for (const [sym, data] of Object.entries(prices)) {
       if (data.price > 0) lastKnownPricesRef.current[sym] = data.price;
     }
   }, [prices]);
+
+  // Poll WS live prices for flash effects
+  useEffect(() => {
+    const iv = setInterval(() => {
+      const wsState = (window as Window).TS_ULTRA_STATE?.livePrices ?? {};
+      const updates: Record<string, "up" | "down"> = {};
+      for (const [sym, price] of Object.entries(wsState)) {
+        const prev = prevPricesRef.current[sym];
+        if (prev !== undefined && price !== prev) {
+          updates[sym] = price > prev ? "up" : "down";
+          // Clear existing timer
+          if (flashTimersRef.current[sym])
+            clearTimeout(flashTimersRef.current[sym]);
+          flashTimersRef.current[sym] = setTimeout(() => {
+            setFlashMap((m) => ({ ...m, [sym]: null }));
+          }, 600);
+        }
+        prevPricesRef.current[sym] = price;
+        lastKnownPricesRef.current[sym] = price;
+      }
+      if (Object.keys(updates).length > 0) {
+        setFlashMap((m) => ({ ...m, ...updates }));
+      }
+    }, 100);
+    return () => clearInterval(iv);
+  }, []);
 
   // Live Fear & Greed from Alternative.me
   useEffect(() => {
@@ -165,7 +200,7 @@ export function DashboardTab({
             className="text-[#00FF88] text-[10px] font-mono px-2 py-0.5 rounded-full border border-[#00FF88]/30 animate-pulse"
             style={{ background: "rgba(0,255,136,0.08)" }}
           >
-            ● LIVE
+            \u25cf LIVE
           </span>
         )}
       </div>
@@ -263,7 +298,6 @@ export function DashboardTab({
             </div>
           ) : fearGreed ? (
             <div className="flex items-center gap-6">
-              {/* Arc gauge */}
               <div
                 className="relative shrink-0"
                 style={{ width: 96, height: 96 }}
@@ -392,7 +426,7 @@ export function DashboardTab({
           <div className="flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-[#00D4FF] animate-pulse" />
             <span className="text-[#00D4FF] text-[10px] font-mono">
-              Binance WebSocket + CoinGecko
+              Binance WebSocket
             </span>
           </div>
           <span className="text-gray-600 text-[10px] font-mono ml-auto">
@@ -400,7 +434,7 @@ export function DashboardTab({
           </span>
         </div>
         <div className="bg-[#0D1117] rounded-xl border border-[#1C2333] overflow-hidden">
-          <div className="grid grid-cols-[28px_1fr_90px_64px_80px] gap-2 px-4 py-2 border-b border-[#1C2333] text-[10px] font-mono text-gray-500 uppercase tracking-wider">
+          <div className="grid grid-cols-[28px_1fr_100px_64px_80px] gap-2 px-4 py-2 border-b border-[#1C2333] text-[10px] font-mono text-gray-500 uppercase tracking-wider">
             <span>#</span>
             <span>Asset</span>
             <span className="text-right">Price</span>
@@ -409,20 +443,29 @@ export function DashboardTab({
           </div>
           {TRACKED_SYMBOLS.map((symbol, idx) => {
             const p = prices[symbol];
+            const wsPrice = getWsPrice(symbol);
+            const displayPrice =
+              wsPrice ?? p?.price ?? lastKnownPricesRef.current[symbol];
             const color = COIN_COLORS[symbol] ?? "#D4AF37";
             const name = COIN_NAMES[symbol] ?? symbol.replace("USDT", "");
             const ticker = symbol.replace("USDT", "");
             const change = p?.change24h ?? 0;
             const isUp = change >= 0;
+            const flash = flashMap[symbol];
+            const flashColor =
+              flash === "up" ? "#00FF88" : flash === "down" ? "#FF3B5C" : null;
             return (
               <div
                 key={symbol}
                 data-ocid={`dashboard.asset.item.${idx + 1}`}
-                className="grid grid-cols-[28px_1fr_90px_64px_80px] gap-2 items-center px-4 py-2.5 border-b border-[#1C2333]/50 last:border-0 hover:bg-[#1C2333]/20 transition-colors"
+                className="grid grid-cols-[28px_1fr_100px_64px_80px] gap-2 items-center px-4 py-2.5 border-b border-[#1C2333]/50 last:border-0 hover:bg-[#1C2333]/20 transition-colors"
                 style={
-                  p?.flashColor
-                    ? { boxShadow: `inset 3px 0 0 ${p.flashColor}60` }
-                    : {}
+                  flashColor
+                    ? {
+                        boxShadow: `inset 3px 0 0 ${flashColor}80`,
+                        transition: "box-shadow 0.3s",
+                      }
+                    : { transition: "box-shadow 0.3s" }
                 }
               >
                 <span className="text-gray-600 text-[10px] font-mono text-center">
@@ -448,16 +491,29 @@ export function DashboardTab({
                     </p>
                   </div>
                 </div>
-                <p
-                  className="font-mono font-bold text-xs text-right transition-colors duration-300"
-                  style={{ color: p?.flashColor ?? "#FFFFFF" }}
-                >
-                  {p || lastKnownPricesRef.current[symbol] ? (
-                    `$${fmt(p?.price ?? 0, lastKnownPricesRef.current[symbol])}`
-                  ) : (
-                    <span className="text-gray-700 text-[10px]">&mdash;</span>
+                <div className="text-right flex items-center justify-end gap-1">
+                  <p
+                    className="font-mono font-bold text-xs transition-colors duration-200"
+                    style={{ color: flashColor ?? "#FFFFFF" }}
+                  >
+                    {displayPrice ? (
+                      `$${fmt(displayPrice)}`
+                    ) : (
+                      <span className="text-gray-700 text-[10px]">&mdash;</span>
+                    )}
+                  </p>
+                  {wsPrice && (
+                    <span
+                      className="text-[8px] font-mono"
+                      style={{
+                        color: "#00D4FF",
+                        animation: "pulse 1s ease-in-out infinite",
+                      }}
+                    >
+                      ●
+                    </span>
                   )}
-                </p>
+                </div>
                 <span
                   className="text-[10px] font-mono font-bold px-1 py-0.5 rounded text-right"
                   style={{
