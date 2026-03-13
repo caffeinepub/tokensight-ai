@@ -193,6 +193,7 @@ export default function App() {
               history={history}
               proUserCount={proUserCount}
               signalCount={signals.length}
+              activeSignalsCount={signals.length}
             />
           )}
           {activeTab === "signals" && (
@@ -214,6 +215,7 @@ export default function App() {
               isAdmin={isAdminAccess}
               onUnlock={() => setShowModal(true)}
               history={history}
+              activeSignalsCount={signals.length}
             />
           )}
         </main>

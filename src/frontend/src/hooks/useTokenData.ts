@@ -160,7 +160,9 @@ const RATIONALES = [
   "FVG + OB confluence at key level, 4H trend confirmed bullish — ride the impulse",
   "Bearish Divergence at resistance with FVG overhead — distribution phase active",
   "Bullish Divergence + Volume Spike at EQH sweep — triple confirmation SMC entry",
-  "4H CHOCH with FVG retest confirmed — strong bullish continuation signal",
+  "4H CHoCH confirmed above OB — market structure shifted bullish, FVG fill imminent",
+  "MSB on 15M with Liquidity Sweep + FVG confluence — institutional entry confirmed",
+  "CHoCH + OB retest + Liquidity Sweep — triple SMC confluence, high-probability setup",
   "Institutional OB tested, Volume Spike confirms entry — high-probability setup",
 ];
 
@@ -224,7 +226,7 @@ function buildSignal(
   if (highVolume) winRate += 4;
   winRate = Math.min(97, winRate);
 
-  const tags: string[] = ["4H BULL", "15M MSB"];
+  const tags: string[] = ["4H BULL", "15M MSB", "CHoCH", "MSB"];
   if (priceInRange > 0.5 || idx % 2 === 0) tags.push("OB");
   if (highVolume || idx % 3 === 0) tags.push("FVG");
   if (strongMomentum || idx % 5 === 0) tags.push("MSS");
@@ -234,7 +236,7 @@ function buildSignal(
     confidence > 95 &&
     winRate > 90 &&
     bullishMomentum &&
-    tags.includes("OB") &&
+    tags.includes("Liquidity Sweep") &&
     tags.includes("FVG");
 
   const rationaleIdx = (idx + Math.floor(price * 10)) % RATIONALES.length;
@@ -333,16 +335,36 @@ export function useTokenData() {
   const refreshSignals = useCallback((priceMap: Record<string, TokenPrice>) => {
     let cacheChanged = false;
 
+    // 60-minute expiry: if entry zone was never touched, expire the signal
+    const SIGNAL_EXPIRY_MS = 60 * 60 * 1000; // 60 minutes
+    const ENTRY_ZONE_TOLERANCE = 0.03; // 3% — "entry zone hit" threshold
+
     // ── ALWAYS generate a signal for EVERY tracked symbol ──────────────────
-    // Confluence only affects the confidence score, not whether a signal shows.
-    // This ensures "Signals Today" counter always matches the rendered card count.
     const updated = TRACKED_SYMBOLS.map((s, i) => {
       const priceData = priceMap[s] ?? makeFallbackPriceData(s);
       const existing = signalCache.current[s];
 
       if (existing) {
-        // Signal already cached — keep it STATIC (preserve Entry/TP/SL)
-        // Only rebuild if live price has drifted >5% (significant market move)
+        const age = Date.now() - existing.createdAt;
+        const entryZoneHit =
+          Math.abs(priceData.price - existing.entry) / existing.entry <=
+          ENTRY_ZONE_TOLERANCE;
+
+        // Expire normal signals after 60 min if entry zone was never hit
+        if (
+          age > SIGNAL_EXPIRY_MS &&
+          !entryZoneHit &&
+          !existing.isGoldenSniperEligible
+        ) {
+          // Remove from cache so a fresh signal is generated
+          delete signalCache.current[s];
+          cacheChanged = true;
+          const fresh = buildSignal(s, priceData, i, undefined);
+          signalCache.current[s] = fresh;
+          return fresh;
+        }
+
+        // Signal still valid — keep it STATIC (preserve Entry/TP/SL)
         const drift =
           Math.abs(priceData.price - existing.entry) / existing.entry;
         if (drift < 0.05) {

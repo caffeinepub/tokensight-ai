@@ -1,6 +1,7 @@
 import { Crown, Lock } from "lucide-react";
 import type { HistoryEntry } from "../hooks/useSignalHistory";
 import type { Signal } from "../hooks/useTokenData";
+import { fmtPrice } from "../lib/utils";
 
 interface Props {
   signal: Signal | null;
@@ -9,13 +10,6 @@ interface Props {
   scanningForGoldenSniper?: boolean;
   historyEntry?: HistoryEntry | null;
   isAdmin?: boolean;
-}
-
-function fmt(n: number): string {
-  if (n < 0.0001) return n.toFixed(8);
-  if (n < 1) return n.toFixed(6);
-  if (n < 100) return n.toFixed(4);
-  return n.toLocaleString("en-US", { maximumFractionDigits: 2 });
 }
 
 /**
@@ -173,9 +167,19 @@ export function GoldenSniper({
             </span>
           )}
           {isEligible && signal && (
-            <span className="text-gray-500 text-[10px] font-mono ml-auto">
-              🕒 {relativeTime(signal.createdAt)}
-            </span>
+            <div className="text-gray-500 text-[10px] font-mono ml-auto flex flex-col items-end">
+              <span>
+                Detected:{" "}
+                {new Date(signal.createdAt).toLocaleTimeString("en-US", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  timeZone: "UTC",
+                  hour12: false,
+                })}{" "}
+                UTC
+              </span>
+              <span>Elapsed: {relativeTime(signal.createdAt)}</span>
+            </div>
           )}
           {scanningForGoldenSniper && !isEligible && (
             <span
@@ -319,7 +323,7 @@ export function GoldenSniper({
                         {signal!.coin}
                       </p>
                       <p className="text-gray-400 text-xs">
-                        Entry: ${fmt(signal!.entry)}
+                        Entry: ${fmtPrice(signal!.entry)}
                       </p>
                     </div>
                   </div>
@@ -402,7 +406,7 @@ export function GoldenSniper({
                         style={{ color: c }}
                         title={String(value)}
                       >
-                        ${fmt(value)}
+                        ${fmtPrice(value)}
                       </p>
                     </div>
                   ))}

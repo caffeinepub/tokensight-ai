@@ -10,12 +10,14 @@ import {
 import { Crown, Lock } from "lucide-react";
 import { useState } from "react";
 import type { HistoryEntry } from "../hooks/useSignalHistory";
+import { fmtPrice } from "../lib/utils";
 
 interface Props {
   isPro: boolean;
   isAdmin?: boolean;
   onUnlock: () => void;
   history: HistoryEntry[];
+  activeSignalsCount?: number;
 }
 
 type SubTab = "all" | "golden";
@@ -46,14 +48,6 @@ const OUTCOME_CONFIG: Record<string, { label: string; className: string }> = {
     className: "bg-[#D4AF37]/20 text-[#D4AF37] border-[#D4AF37]/40",
   },
 };
-
-function fmt(n: number): string {
-  if (n < 0.00001) return n.toFixed(8);
-  if (n < 0.001) return n.toFixed(7);
-  if (n < 1) return n.toFixed(4);
-  if (n < 100) return n.toFixed(2);
-  return n.toLocaleString("en-US", { maximumFractionDigits: 0 });
-}
 
 function fmtDate(ts: number): string {
   return new Date(ts).toLocaleDateString("en-US", {
@@ -137,13 +131,13 @@ function HistoryTable({
                   </span>
                 </TableCell>
                 <TableCell className="font-mono text-xs text-gray-300">
-                  ${fmt(row.entry)}
+                  ${fmtPrice(row.entry)}
                 </TableCell>
                 <TableCell
                   className="font-mono text-xs font-bold"
                   style={{ color: isWin ? "#00FF88" : "#FF3B5C" }}
                 >
-                  {row.exitPrice ? `$${fmt(row.exitPrice)}` : "—"}
+                  {row.exitPrice ? `$${fmtPrice(row.exitPrice)}` : "—"}
                 </TableCell>
                 <TableCell
                   className="font-mono text-xs font-bold"
@@ -263,11 +257,13 @@ function GoldenTab({
   goldenHistory,
   goldenWinRate,
   isPro,
+  isAdmin,
   onUnlock,
 }: {
   goldenHistory: HistoryEntry[];
   goldenWinRate: string | null;
   isPro: boolean;
+  isAdmin?: boolean;
   onUnlock: () => void;
 }) {
   return (
@@ -298,13 +294,45 @@ function GoldenTab({
           High-precision Golden Sniper trades — 95%+ confidence only
         </p>
       </div>
-      <HistoryTable
-        rows={goldenHistory}
-        isPro={isPro}
-        onUnlock={onUnlock}
-        lockedCount={0}
-        showMonitoring
-      />
+      {!isPro && !isAdmin ? (
+        <div className="relative">
+          <div className="opacity-30 blur-sm pointer-events-none select-none">
+            <HistoryTable
+              rows={goldenHistory.slice(0, 1)}
+              isPro={false}
+              onUnlock={onUnlock}
+              lockedCount={0}
+              showMonitoring
+            />
+          </div>
+          <div className="absolute inset-0 flex flex-col items-center justify-center rounded-xl bg-[#080B14]/70">
+            <Lock className="text-[#D4AF37] mb-2" size={24} />
+            <p className="text-[#FFD700] font-bold text-sm mb-2">
+              Pro Only — Golden Track Record
+            </p>
+            <button
+              type="button"
+              onClick={onUnlock}
+              data-ocid="history.golden_unlock_button"
+              className="px-5 py-2 rounded-full font-mono font-bold text-xs"
+              style={{
+                background: "linear-gradient(135deg, #D4AF37, #FFD700)",
+                color: "#080B14",
+              }}
+            >
+              Unlock Pro Access
+            </button>
+          </div>
+        </div>
+      ) : (
+        <HistoryTable
+          rows={goldenHistory}
+          isPro={isPro}
+          onUnlock={onUnlock}
+          lockedCount={0}
+          showMonitoring
+        />
+      )}
     </div>
   );
 }
@@ -314,6 +342,7 @@ export function SignalHistoryTab({
   isAdmin = false,
   onUnlock,
   history,
+  activeSignalsCount,
 }: Props) {
   const [subTab, setSubTab] = useState<SubTab>("all");
 
@@ -360,9 +389,9 @@ export function SignalHistoryTab({
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
-          {activeHistory.length > 0 && (
+          {(activeHistory.length > 0 || (activeSignalsCount ?? 0) > 0) && (
             <span className="text-[10px] font-mono px-2 py-1 rounded-full border border-[#D4AF37]/40 bg-[#D4AF37]/10 text-[#D4AF37]">
-              {activeHistory.length} active
+              {activeSignalsCount ?? activeHistory.length} Active
             </span>
           )}
           <span className="text-[10px] font-mono px-2 py-1 rounded-full border border-[#00FF88]/40 bg-[#00FF88]/10 text-[#00FF88]">
@@ -386,31 +415,29 @@ export function SignalHistoryTab({
         >
           All Signals
         </button>
-        {(isPro || isAdmin) && (
-          <button
-            type="button"
-            data-ocid="history.golden_tab"
-            onClick={() => setSubTab("golden")}
-            className="px-4 py-1.5 rounded-full font-mono text-xs font-semibold transition-all border flex items-center gap-1"
-            style={{
-              background:
-                subTab === "golden" ? "rgba(212,175,55,0.15)" : "transparent",
-              borderColor: subTab === "golden" ? "#D4AF37" : "#1C2333",
-              color: subTab === "golden" ? "#D4AF37" : "#6B7280",
-            }}
-          >
-            <Crown size={11} />
-            Golden Track Record
-            {goldenHistory.length > 0 && (
-              <span
-                className="ml-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold"
-                style={{ background: "#D4AF37", color: "#080B14" }}
-              >
-                {goldenHistory.length}
-              </span>
-            )}
-          </button>
-        )}
+        <button
+          type="button"
+          data-ocid="history.golden_tab"
+          onClick={() => setSubTab("golden")}
+          className="px-4 py-1.5 rounded-full font-mono text-xs font-semibold transition-all border flex items-center gap-1"
+          style={{
+            background:
+              subTab === "golden" ? "rgba(212,175,55,0.15)" : "transparent",
+            borderColor: subTab === "golden" ? "#D4AF37" : "#1C2333",
+            color: subTab === "golden" ? "#D4AF37" : "#6B7280",
+          }}
+        >
+          <Crown size={11} />
+          Golden Track Record
+          {goldenHistory.length > 0 && (
+            <span
+              className="ml-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold"
+              style={{ background: "#D4AF37", color: "#080B14" }}
+            >
+              {goldenHistory.length}
+            </span>
+          )}
+        </button>
       </div>
 
       {subTab === "all" && (
@@ -429,6 +456,7 @@ export function SignalHistoryTab({
           goldenHistory={goldenHistory}
           goldenWinRate={goldenWinRate}
           isPro={isPro}
+          isAdmin={isAdmin}
           onUnlock={onUnlock}
         />
       )}

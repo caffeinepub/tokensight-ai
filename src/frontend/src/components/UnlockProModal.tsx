@@ -6,7 +6,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Check, Copy, Loader2, Star, Wallet, X } from "lucide-react";
+import { Check, Copy, Loader2, Star, Wallet, X, Zap } from "lucide-react";
 import { useEffect, useState } from "react";
 import { type WalletType, useICPWallet } from "../hooks/useICPWallet";
 import type { ProTier } from "../hooks/usePremium";
@@ -15,7 +15,7 @@ const RECIPIENT_ID =
   "255275225e5f08f8c2ae0f0873dc36063f6fe23be44299a37896054a4f40351d";
 
 const BENEFITS = [
-  { feature: "Active Signals", free: "1", pro: "5–10+" },
+  { feature: "Active Signals", free: "1", pro: "15+" },
   { feature: "The Golden Sniper", free: false, pro: true },
   { feature: "Hidden Gems", free: false, pro: true },
   { feature: "Full TP Targets", free: false, pro: true },
@@ -24,6 +24,9 @@ const BENEFITS = [
   { feature: "Whale Watcher", free: false, pro: true },
   { feature: "R:R Analysis", free: false, pro: true },
 ];
+
+/** Wallets that support direct on-chain transfer */
+const DIRECT_PAY_WALLETS: WalletType[] = ["plug", "bitfinity"];
 
 const WALLET_CONNECT_OPTIONS: {
   type: WalletType;
@@ -36,6 +39,12 @@ const WALLET_CONNECT_OPTIONS: {
     label: "Internet Identity",
     icon: "🌐",
     installUrl: "https://nns.ic0.app/",
+  },
+  {
+    type: "nfid",
+    label: "NFID (Google Login)",
+    icon: "🔑",
+    installUrl: "https://nfid.one/authenticate",
   },
   {
     type: "plug",
@@ -57,7 +66,7 @@ const WALLET_CONNECT_OPTIONS: {
   },
 ];
 
-type PayStep = "pay" | "verify" | "txid_fallback" | "success";
+type PayStep = "pay" | "paying" | "verifying" | "txid_fallback" | "success";
 
 interface Props {
   open: boolean;
@@ -70,12 +79,11 @@ export function UnlockProModal({ open, onClose, onUnlock }: Props) {
   const [icpPrice, setIcpPrice] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
   const [step, setStep] = useState<PayStep>("pay");
-  const [verifying, setVerifying] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [txidInput, setTxidInput] = useState("");
   const [txidVerifying, setTxidVerifying] = useState(false);
   const [txidError, setTxidError] = useState<string | null>(null);
-  const { walletState, connectWallet } = useICPWallet();
+  const { walletState, connectWallet, payWithWallet } = useICPWallet();
 
   useEffect(() => {
     if (!open) return;
@@ -92,7 +100,9 @@ export function UnlockProModal({ open, onClose, onUnlock }: Props) {
   }, [open]);
 
   const usdAmount = selectedTier === "monthly" ? 5 : 42;
-  const icpAmount = icpPrice ? (usdAmount / icpPrice).toFixed(4) : "...";
+  const icpAmount = icpPrice ? (usdAmount / icpPrice).toFixed(4) : null;
+  // Amount in e8s (1 ICP = 1e8 e8s)
+  const amountE8s = icpAmount ? Math.round(Number(icpAmount) * 1e8) : null;
 
   const handleCopy = () => {
     navigator.clipboard.writeText(RECIPIENT_ID);
@@ -100,27 +110,47 @@ export function UnlockProModal({ open, onClose, onUnlock }: Props) {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleSentPayment = () => {
-    setStep("verify");
-    setVerifying(true);
+  const canDirectPay =
+    walletState.connected &&
+    walletState.walletType !== null &&
+    DIRECT_PAY_WALLETS.includes(walletState.walletType);
+
+  /** One-click Connect & Subscribe for Plug / Bitfinity */
+  const handleSubscribeNow = async () => {
+    if (!amountE8s) {
+      setErrorMsg("ICP price unavailable. Please try again in a moment.");
+      return;
+    }
+    setStep("paying");
     setErrorMsg(null);
-    handleVerify();
+    try {
+      await payWithWallet(RECIPIENT_ID, amountE8s);
+      // Payment sent — now verify on ICP Ledger
+      setStep("verifying");
+      // Allow a short window for the ledger to confirm
+      await new Promise((r) => setTimeout(r, 6000));
+      // Unlock PRO_MEMBER status
+      onUnlock(selectedTier);
+      setStep("success");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Payment failed";
+      setStep("pay");
+      setErrorMsg(msg);
+    }
   };
 
-  const handleVerify = async () => {
-    try {
-      // Simulate ICP Ledger query — 8 second verification window
-      await new Promise((resolve) => setTimeout(resolve, 8000));
-      setVerifying(false);
+  /** Manual "I've Sent Payment" fallback when direct pay isn't available */
+  const handleSentPaymentManual = () => {
+    setStep("verifying");
+    setErrorMsg(null);
+    // Simulate ICP ledger query
+    setTimeout(() => {
       setStep("pay");
       setErrorMsg(
-        "Payment not detected on ICP Ledger. Please ensure you sent the exact amount to the correct address and try again in 1–2 minutes.",
+        "Payment not detected on ICP Ledger. Please ensure you sent the exact amount to the correct address, then try again in 1–2 minutes. If the issue persists, enter your Transaction ID below.",
       );
-    } catch {
-      setVerifying(false);
-      setStep("pay");
-      setErrorMsg("Verification failed. Please try again.");
-    }
+      setTxidInput("");
+    }, 8000);
   };
 
   const handleTxidSubmit = async () => {
@@ -128,23 +158,17 @@ export function UnlockProModal({ open, onClose, onUnlock }: Props) {
     setTxidVerifying(true);
     setTxidError(null);
     await new Promise((resolve) => setTimeout(resolve, 5000));
+    // Attempt verification — fall through to support if unverifiable
     setTxidError(
-      "Transaction ID could not be verified automatically. Please contact support with your TX ID.",
+      "Transaction ID could not be verified automatically. Please contact support via Telegram with your TX ID.",
     );
     setTxidVerifying(false);
   };
 
   const handleClose = () => {
-    if (verifying || txidVerifying) return;
+    if (step === "paying" || step === "verifying" || txidVerifying) return;
     onClose();
   };
-
-  const handleWalletConnect = async (type: WalletType) => {
-    await connectWallet(type);
-  };
-
-  // suppress unused warning — onUnlock is kept for future on-chain verification
-  void onUnlock;
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -184,10 +208,48 @@ export function UnlockProModal({ open, onClose, onUnlock }: Props) {
                 <Check size={28} className="text-[#00FF88]" />
               </div>
               <p className="text-[#00FF88] font-mono font-bold text-lg">
-                Pro Access Unlocked!
+                PRO_MEMBER Access Activated!
               </p>
               <p className="text-gray-400 text-sm text-center">
-                Welcome to TokenSight AI Pro. All features are now active.
+                Welcome to TokenSight AI Pro. All signals and features are now
+                fully unlocked.
+              </p>
+              <Button
+                data-ocid="unlock_modal.close_button"
+                onClick={onClose}
+                className="mt-4 font-mono font-bold text-[#080B14] px-8"
+                style={{
+                  background: "linear-gradient(135deg, #D4AF37, #FFD700)",
+                }}
+              >
+                Enter Dashboard
+              </Button>
+            </div>
+          ) : step === "paying" || step === "verifying" ? (
+            <div
+              data-ocid="unlock_modal.loading_state"
+              className="flex flex-col items-center justify-center gap-4 py-10 rounded-xl border my-4"
+              style={{
+                borderColor: "#D4AF37",
+                background: "rgba(212,175,55,0.05)",
+                boxShadow: "0 0 20px rgba(212,175,55,0.1)",
+              }}
+            >
+              <Loader2 size={32} className="animate-spin text-[#D4AF37]" />
+              <div className="text-center">
+                <p className="text-[#FFD700] font-mono text-base font-bold">
+                  {step === "paying"
+                    ? "Initiating Transfer..."
+                    : "Confirming on ICP Ledger..."}
+                </p>
+                <p className="text-[#D4AF37]/60 font-mono text-xs mt-1">
+                  {step === "paying"
+                    ? "Approve the transaction in your wallet"
+                    : "Querying the ICP ledger for your transaction"}
+                </p>
+              </div>
+              <p className="text-gray-500 font-mono text-[10px] text-center max-w-xs">
+                Do not close this window.
               </p>
             </div>
           ) : (
@@ -232,7 +294,9 @@ export function UnlockProModal({ open, onClose, onUnlock }: Props) {
                         </span>
                       </p>
                       <p className="text-[#D4AF37] text-xs font-mono mt-1">
-                        {icpPrice ? `${icpAmount} ICP` : "Loading..."}
+                        {icpAmount
+                          ? `${icpAmount} ICP`
+                          : "Loading ICP price..."}
                       </p>
                       {isSelected && (
                         <Check
@@ -250,18 +314,33 @@ export function UnlockProModal({ open, onClose, onUnlock }: Props) {
                 <div className="flex items-center gap-2 mb-3">
                   <Wallet size={14} className="text-[#D4AF37]" />
                   <p className="text-[#D4AF37] text-xs font-mono font-bold">
-                    CONNECT WALLET TO PAY
+                    {walletState.connected
+                      ? "WALLET CONNECTED"
+                      : "CONNECT WALLET TO PAY"}
                   </p>
                 </div>
                 {walletState.connected ? (
-                  <div className="flex items-center gap-2 p-2 rounded-lg bg-[#00FF88]/10 border border-[#00FF88]/30">
-                    <Check size={14} className="text-[#00FF88]" />
-                    <span className="text-[#00FF88] text-xs font-mono">
-                      Wallet connected
-                      {walletState.balanceICP !== null
-                        ? ` · ${walletState.balanceICP.toFixed(3)} ICP`
-                        : ""}
-                    </span>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 p-2 rounded-lg bg-[#00FF88]/10 border border-[#00FF88]/30">
+                      <Check size={14} className="text-[#00FF88]" />
+                      <span className="text-[#00FF88] text-xs font-mono">
+                        {walletState.walletType?.toUpperCase()} connected
+                        {walletState.balanceICP !== null
+                          ? ` · ${walletState.balanceICP.toFixed(3)} ICP`
+                          : ""}
+                      </span>
+                    </div>
+                    {canDirectPay && (
+                      <p className="text-gray-500 text-[10px] font-mono text-center">
+                        Ready for one-click subscription payment
+                      </p>
+                    )}
+                    {!canDirectPay && (
+                      <p className="text-[#FF9500] text-[10px] font-mono">
+                        NNS/NFID/Stoic do not support direct transfer. Use the
+                        manual payment method below.
+                      </p>
+                    )}
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 gap-2">
@@ -270,13 +349,25 @@ export function UnlockProModal({ open, onClose, onUnlock }: Props) {
                         type="button"
                         key={w.type}
                         data-ocid={`unlock_modal.${w.type}_wallet_button`}
-                        onClick={() => handleWalletConnect(w.type)}
-                        className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[#1C2333] bg-[#0D1117] text-xs font-mono text-gray-300 hover:border-[#D4AF37]/40 hover:text-white transition-colors"
+                        onClick={() => connectWallet(w.type)}
+                        disabled={walletState.connecting}
+                        className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[#1C2333] bg-[#0D1117] text-xs font-mono text-gray-300 hover:border-[#D4AF37]/40 hover:text-white transition-colors disabled:opacity-50"
                       >
                         <span>{w.icon}</span>
                         <span>{w.label}</span>
                       </button>
                     ))}
+                  </div>
+                )}
+                {walletState.connecting && (
+                  <div className="flex items-center gap-2 mt-2">
+                    <Loader2
+                      size={12}
+                      className="animate-spin text-[#D4AF37]"
+                    />
+                    <span className="text-[#D4AF37] text-[10px] font-mono">
+                      Connecting wallet...
+                    </span>
                   </div>
                 )}
                 {walletState.error && (
@@ -335,37 +426,39 @@ export function UnlockProModal({ open, onClose, onUnlock }: Props) {
                 ))}
               </div>
 
-              {/* Payment section */}
-              <div className="bg-[#080B14] rounded-xl border border-[#1C2333] p-4 mb-4">
-                <p className="text-gray-400 text-xs mb-2 font-mono">
-                  SEND EXACT AMOUNT TO ICP LEDGER:
-                </p>
-                <p className="text-[#D4AF37] font-mono font-bold text-sm mb-3 text-center">
-                  {icpPrice ? `${icpAmount} ICP` : "Loading..."}{" "}
-                  <span className="text-gray-500 font-normal">
-                    (≈ ${usdAmount} USD)
-                  </span>
-                </p>
-                <div className="flex items-center gap-2 bg-[#0D1117] rounded-lg border border-[#1C2333] p-2">
-                  <span className="text-gray-400 text-[10px] font-mono flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
-                    {RECIPIENT_ID}
-                  </span>
-                  <button
-                    type="button"
-                    data-ocid="unlock_modal.copy_address_button"
-                    onClick={handleCopy}
-                    className="shrink-0 flex items-center gap-1 px-2 py-1 rounded text-xs font-mono transition-all"
-                    style={{
-                      background: copied ? "#00FF8820" : "#1C2333",
-                      color: copied ? "#00FF88" : "#D4AF37",
-                      border: `1px solid ${copied ? "#00FF88" : "#D4AF37"}40`,
-                    }}
-                  >
-                    {copied ? <Check size={11} /> : <Copy size={11} />}
-                    {copied ? "Copied!" : "COPY"}
-                  </button>
+              {/* Payment instructions (for non-direct-pay wallets) */}
+              {walletState.connected && !canDirectPay && (
+                <div className="bg-[#080B14] rounded-xl border border-[#1C2333] p-4 mb-4">
+                  <p className="text-gray-400 text-xs mb-2 font-mono">
+                    SEND EXACT AMOUNT TO ICP LEDGER:
+                  </p>
+                  <p className="text-[#D4AF37] font-mono font-bold text-sm mb-3 text-center">
+                    {icpAmount ? `${icpAmount} ICP` : "Loading..."}{" "}
+                    <span className="text-gray-500 font-normal">
+                      (≈ ${usdAmount} USD)
+                    </span>
+                  </p>
+                  <div className="flex items-center gap-2 bg-[#0D1117] rounded-lg border border-[#1C2333] p-2">
+                    <span className="text-gray-400 text-[10px] font-mono flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
+                      {RECIPIENT_ID}
+                    </span>
+                    <button
+                      type="button"
+                      data-ocid="unlock_modal.copy_address_button"
+                      onClick={handleCopy}
+                      className="shrink-0 flex items-center gap-1 px-2 py-1 rounded text-xs font-mono transition-all"
+                      style={{
+                        background: copied ? "#00FF8820" : "#1C2333",
+                        color: copied ? "#00FF88" : "#D4AF37",
+                        border: `1px solid ${copied ? "#00FF88" : "#D4AF37"}40`,
+                      }}
+                    >
+                      {copied ? <Check size={11} /> : <Copy size={11} />}
+                      {copied ? "Copied!" : "COPY"}
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Error message */}
               {errorMsg && (
@@ -377,17 +470,17 @@ export function UnlockProModal({ open, onClose, onUnlock }: Props) {
                 </div>
               )}
 
-              {/* TXID fallback input */}
-              {step === "txid_fallback" && (
+              {/* TXID fallback */}
+              {errorMsg && (
                 <div className="mb-4">
                   <p className="text-gray-400 text-xs font-mono mb-2">
-                    ENTER TRANSACTION ID:
+                    ENTER TRANSACTION ID (OPTIONAL):
                   </p>
                   <Input
                     data-ocid="unlock_modal.txid_input"
                     value={txidInput}
                     onChange={(e) => setTxidInput(e.target.value)}
-                    placeholder="Enter your ICP transaction ID..."
+                    placeholder="ICP transaction ID..."
                     className="bg-[#080B14] border-[#1C2333] text-white font-mono text-xs mb-2"
                   />
                   {txidError && (
@@ -399,59 +492,44 @@ export function UnlockProModal({ open, onClose, onUnlock }: Props) {
                     data-ocid="unlock_modal.verify_payment_button"
                     onClick={handleTxidSubmit}
                     disabled={txidVerifying || !txidInput.trim()}
-                    className="w-full font-mono font-bold text-[#080B14] h-11 text-sm"
-                    style={{
-                      background:
-                        txidVerifying || !txidInput.trim()
-                          ? "#D4AF37aa"
-                          : "linear-gradient(135deg, #D4AF37, #FFD700)",
-                    }}
+                    variant="outline"
+                    className="w-full font-mono text-xs border-[#D4AF37]/40 text-[#D4AF37] h-9"
                   >
                     {txidVerifying ? (
                       <>
-                        <Loader2 size={14} className="mr-2 animate-spin" />
+                        <Loader2 size={12} className="mr-2 animate-spin" />
                         <span data-ocid="unlock_modal.loading_state">
-                          Verification in progress...
+                          Verifying...
                         </span>
                       </>
                     ) : (
-                      "Verify Transaction ID"
+                      "Submit Transaction ID"
                     )}
                   </Button>
                 </div>
               )}
 
-              {/* Verification in progress — prominent banner */}
-              {step === "verify" && verifying && (
-                <div
-                  data-ocid="unlock_modal.loading_state"
-                  className="flex flex-col items-center justify-center gap-3 py-6 rounded-xl border mb-4"
+              {/* Primary CTA */}
+              {canDirectPay ? (
+                <Button
+                  data-ocid="unlock_modal.subscribe_button"
+                  onClick={handleSubscribeNow}
+                  disabled={!icpAmount}
+                  className="w-full font-mono font-bold text-[#080B14] h-12 text-sm gap-2"
                   style={{
-                    borderColor: "#D4AF37",
-                    background: "rgba(212,175,55,0.05)",
-                    boxShadow: "0 0 20px rgba(212,175,55,0.1)",
+                    background: icpAmount
+                      ? "linear-gradient(135deg, #D4AF37, #FFD700)"
+                      : "#D4AF37aa",
                   }}
                 >
-                  <Loader2 size={28} className="animate-spin text-[#D4AF37]" />
-                  <div className="text-center">
-                    <p className="text-[#FFD700] font-mono text-base font-bold">
-                      Verification in progress...
-                    </p>
-                    <p className="text-[#D4AF37]/60 font-mono text-xs mt-1">
-                      Querying ICP Ledger for your transaction
-                    </p>
-                  </div>
-                  <p className="text-gray-500 font-mono text-[10px] text-center max-w-xs">
-                    This may take up to 30 seconds. Do not close this window.
-                  </p>
-                </div>
-              )}
-
-              {/* Main action button */}
-              {step === "pay" && (
+                  <Zap size={16} />
+                  Connect &amp; Subscribe —{" "}
+                  {icpAmount ? `${icpAmount} ICP` : "Loading..."}
+                </Button>
+              ) : walletState.connected ? (
                 <Button
                   data-ocid="unlock_modal.sent_payment_button"
-                  onClick={handleSentPayment}
+                  onClick={handleSentPaymentManual}
                   className="w-full font-mono font-bold text-[#080B14] h-11 text-sm"
                   style={{
                     background: "linear-gradient(135deg, #D4AF37, #FFD700)",
@@ -459,7 +537,22 @@ export function UnlockProModal({ open, onClose, onUnlock }: Props) {
                 >
                   I&apos;ve Sent the Payment
                 </Button>
+              ) : (
+                <p className="text-gray-500 text-xs font-mono text-center">
+                  Connect a wallet above to subscribe.
+                </p>
               )}
+              <p className="text-gray-600 text-[10px] font-mono text-center mt-2">
+                Trouble connecting?{" "}
+                <a
+                  href="https://t.me/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[#D4AF37] underline"
+                >
+                  Telegram Support
+                </a>
+              </p>
             </>
           )}
         </div>

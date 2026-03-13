@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { HistoryEntry } from "../hooks/useSignalHistory";
 import type { TokenPrice } from "../hooks/useTokenData";
 import { COIN_NAMES, TRACKED_SYMBOLS } from "../hooks/useTokenData";
+import { fmtPrice } from "../lib/utils";
 import { SentimentGauge } from "./SentimentGauge";
 
 interface Props {
@@ -11,6 +12,7 @@ interface Props {
   history: HistoryEntry[];
   proUserCount: number;
   signalCount?: number;
+  activeSignalsCount?: number;
 }
 
 const COIN_COLORS: Record<string, string> = {
@@ -73,6 +75,7 @@ export function DashboardTab({
   history,
   proUserCount,
   signalCount = 0,
+  activeSignalsCount,
 }: Props) {
   const [fearGreed, setFearGreed] = useState<FearGreed | null>(null);
   const [fgLoading, setFgLoading] = useState(true);
@@ -172,10 +175,13 @@ export function DashboardTab({
         {[
           {
             label: "Signals Today",
-            value: String(signalCount),
+            value: String(activeSignalsCount ?? signalCount),
             icon: Activity,
             color: "#00D4FF",
-            sub: signalCount === 0 ? "No signals yet" : `${signalCount} active`,
+            sub:
+              (activeSignalsCount ?? signalCount) === 0
+                ? "No signals yet"
+                : `${activeSignalsCount ?? signalCount} active`,
           },
           {
             label: "Win Rate",

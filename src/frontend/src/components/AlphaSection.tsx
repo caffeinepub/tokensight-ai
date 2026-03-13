@@ -1,6 +1,7 @@
 import { Lock, Share2 } from "lucide-react";
 import type { HistoryEntry } from "../hooks/useSignalHistory";
 import type { Signal } from "../hooks/useTokenData";
+import { fmtPrice } from "../lib/utils";
 import { GoldenSniper } from "./GoldenSniper";
 import { ShareMyWin } from "./ShareMyWin";
 
@@ -11,23 +12,6 @@ interface Props {
   scanningForGoldenSniper?: boolean;
   isAdmin?: boolean;
   goldenHistoryEntry?: HistoryEntry | null;
-}
-
-/**
- * Format price for display.
- * - Below $1: always 8 decimal places so micro-prices like SHIB/PEPE show correctly.
- * - $1 and above: 2 decimal places with thousands separator.
- */
-function fmt(n: number): string {
-  if (!n || Number.isNaN(n) || n <= 0) return "—";
-  if (n >= 1) {
-    return n.toLocaleString("en-US", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
-  }
-  if (n < 0.001) return n.toFixed(8);
-  return n.toFixed(6);
 }
 
 function relativeTime(ts: number): string {
@@ -198,9 +182,19 @@ function SignalCard({
                   {t}
                 </span>
               ))}
-              <span className="text-[9px] font-mono text-gray-500 ml-1">
-                🕒 {relativeTime(signal.createdAt)}
-              </span>
+              <div className="flex flex-col items-end text-[9px] font-mono text-gray-500 ml-1">
+                <span>
+                  Detected:{" "}
+                  {new Date(signal.createdAt).toLocaleTimeString("en-US", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    timeZone: "UTC",
+                    hour12: false,
+                  })}{" "}
+                  UTC
+                </span>
+                <span>Elapsed: {relativeTime(signal.createdAt)}</span>
+              </div>
             </div>
           </div>
 
@@ -254,7 +248,7 @@ function SignalCard({
                   style={{ color: c }}
                   title={`$${value}`}
                 >
-                  ${fmt(value)}
+                  ${fmtPrice(value)}
                 </p>
               </div>
             ))}
