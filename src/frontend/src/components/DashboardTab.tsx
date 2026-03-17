@@ -1,15 +1,17 @@
 import { Activity, BarChart2, TrendingUp, Users } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type { HistoryEntry } from "../hooks/useSignalHistory";
 import type { TokenPrice } from "../hooks/useTokenData";
 import { COIN_NAMES, TRACKED_SYMBOLS } from "../hooks/useTokenData";
 import { fmtPrice } from "../lib/format";
+import type { SwingHistoryEntry } from "../lib/swingEngine";
+import { setFearGreedValue } from "../lib/swingEngine";
+import { ModelPerformance } from "./ModelPerformance";
 import { SentimentGauge } from "./SentimentGauge";
 
 interface Props {
   prices: Record<string, TokenPrice>;
   connected: boolean;
-  history: HistoryEntry[];
+  swingHistory?: SwingHistoryEntry[];
   proUserCount: number;
   signalCount?: number;
   activeSignalsCount?: number;
@@ -64,7 +66,6 @@ interface FearGreed {
   label: string;
 }
 
-/** Get live WS price for a symbol from global state */
 function getWsPrice(symbol: string): number | null {
   const p = (window as Window).TS_ULTRA_STATE?.livePrices?.[symbol];
   return p && p > 0 ? p : null;
@@ -73,14 +74,13 @@ function getWsPrice(symbol: string): number | null {
 export function DashboardTab({
   prices,
   connected,
-  history,
+  swingHistory,
   proUserCount,
   signalCount = 0,
   activeSignalsCount,
 }: Props) {
   const [fearGreed, setFearGreed] = useState<FearGreed | null>(null);
   const [fgLoading, setFgLoading] = useState(true);
-  // Track which symbols had price updates for flash effect
   const [flashMap, setFlashMap] = useState<
     Record<string, "up" | "down" | null>
   >({});
@@ -91,14 +91,12 @@ export function DashboardTab({
   const loadedCount = TRACKED_SYMBOLS.filter((s) => prices[s]).length;
   const lastKnownPricesRef = useRef<Record<string, number>>({});
 
-  // Update last known prices
   useEffect(() => {
     for (const [sym, data] of Object.entries(prices)) {
       if (data.price > 0) lastKnownPricesRef.current[sym] = data.price;
     }
   }, [prices]);
 
-  // Poll WS live prices for flash effects
   useEffect(() => {
     const iv = setInterval(() => {
       const wsState = (window as Window).TS_ULTRA_STATE?.livePrices ?? {};
@@ -107,7 +105,6 @@ export function DashboardTab({
         const prev = prevPricesRef.current[sym];
         if (prev !== undefined && price !== prev) {
           updates[sym] = price > prev ? "up" : "down";
-          // Clear existing timer
           if (flashTimersRef.current[sym])
             clearTimeout(flashTimersRef.current[sym]);
           flashTimersRef.current[sym] = setTimeout(() => {
@@ -117,14 +114,12 @@ export function DashboardTab({
         prevPricesRef.current[sym] = price;
         lastKnownPricesRef.current[sym] = price;
       }
-      if (Object.keys(updates).length > 0) {
+      if (Object.keys(updates).length > 0)
         setFlashMap((m) => ({ ...m, ...updates }));
-      }
     }, 100);
     return () => clearInterval(iv);
   }, []);
 
-  // Live Fear & Greed from Alternative.me
   useEffect(() => {
     const fetchFG = () => {
       setFgLoading(true);
@@ -132,11 +127,11 @@ export function DashboardTab({
         .then((r) => r.json())
         .then((d) => {
           const item = d?.data?.[0];
-          if (item)
-            setFearGreed({
-              value: Number(item.value),
-              label: item.value_classification,
-            });
+          if (item) {
+            const fgVal = Number(item.value);
+            setFearGreed({ value: fgVal, label: item.value_classification });
+            setFearGreedValue(fgVal);
+          }
         })
         .catch(() => {})
         .finally(() => setFgLoading(false));
@@ -146,22 +141,26 @@ export function DashboardTab({
     return () => clearInterval(iv);
   }, []);
 
-  const completedHistory = history.filter((e) => e.outcome !== "active");
-  const winCount = completedHistory.filter(
-    (e) => e.outcome === "tp1" || e.outcome === "tp2" || e.outcome === "tp3",
+  const swingCompleted = (swingHistory ?? []).filter(
+    (e) => e.status !== "LIVE",
+  );
+  const swingWins = swingCompleted.filter(
+    (e) =>
+      e.status === "TP1_HIT" ||
+      e.status === "TP2_HIT" ||
+      e.status === "TP3_HIT",
   ).length;
+  const winTotal = swingCompleted.length;
   const winRate =
-    completedHistory.length > 0
-      ? ((winCount / completedHistory.length) * 100).toFixed(1)
-      : null;
+    winTotal > 0 ? ((swingWins / winTotal) * 100).toFixed(1) : null;
 
   const avgRR =
-    completedHistory.length > 0
+    swingCompleted.length > 0
       ? (() => {
-          const nums = completedHistory.map((e) => {
-            const parts = e.rrRatio.split(":");
-            return parts[1] ? Number.parseFloat(parts[1]) : 3.0;
-          });
+          const nums = swingCompleted
+            .filter((e) => e.entry > 0 && e.sl > 0 && e.tp3 > 0)
+            .map((e) => Math.abs(e.tp3 - e.entry) / Math.abs(e.sl - e.entry));
+          if (nums.length === 0) return null;
           const avg = nums.reduce((a, b) => a + b, 0) / nums.length;
           return `1:${avg.toFixed(1)}`;
         })()
@@ -191,7 +190,7 @@ export function DashboardTab({
           />
           <span className="text-xs font-mono text-gray-500">
             {connected
-              ? `LIVE \u2014 Binance WebSocket Connected (${loadedCount}/20)`
+              ? `LIVE — Binance WebSocket Connected (${loadedCount}/20)`
               : "Connecting to Binance..."}
           </span>
         </div>
@@ -200,7 +199,7 @@ export function DashboardTab({
             className="text-[#00FF88] text-[10px] font-mono px-2 py-0.5 rounded-full border border-[#00FF88]/30 animate-pulse"
             style={{ background: "rgba(0,255,136,0.08)" }}
           >
-            \u25cf LIVE
+            ● LIVE
           </span>
         )}
       </div>
@@ -220,20 +219,20 @@ export function DashboardTab({
           },
           {
             label: "Win Rate",
-            value: winRate ? `${winRate}%` : "92.5%",
+            value: winRate ? `${winRate}%` : "Training...",
             icon: BarChart2,
             color: "#00FF88",
             sub:
-              completedHistory.length > 0
-                ? `${completedHistory.length} signals`
-                : "Historical avg",
+              swingCompleted.length > 0
+                ? `${swingCompleted.length} resolved`
+                : "Syncing data...",
           },
           {
             label: "Avg R:R",
-            value: avgRR ?? "\u2014",
+            value: avgRR ?? "—",
             icon: TrendingUp,
             color: "#D4AF37",
-            sub: completedHistory.length > 0 ? "from history" : "No data yet",
+            sub: swingCompleted.length > 0 ? "from history" : "No data yet",
           },
           {
             label: "Pro Users",
@@ -273,9 +272,11 @@ export function DashboardTab({
         ))}
       </div>
 
+      {/* Model Performance Section */}
+      <ModelPerformance />
+
       {/* Fear & Greed + Sentiment */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Fear & Greed Index */}
         <div className="bg-[#0D1117] rounded-xl border border-[#1C2333] p-5">
           <div className="flex items-center justify-between mb-4">
             <div>
@@ -348,6 +349,18 @@ export function DashboardTab({
                 <p className="text-gray-500 text-xs mt-1">
                   Market sentiment score
                 </p>
+                {fearGreed.value < 25 && (
+                  <div
+                    className="mt-2 px-2 py-1 rounded text-[9px] font-mono font-bold border"
+                    style={{
+                      color: "#00FF88",
+                      borderColor: "#00FF8840",
+                      background: "rgba(0,255,136,0.06)",
+                    }}
+                  >
+                    🧠 EXTREME FEAR — Smart Money Entry Zone Active
+                  </div>
+                )}
                 <div className="flex gap-1 mt-2 flex-wrap">
                   {[
                     "Extreme Fear",
@@ -393,7 +406,6 @@ export function DashboardTab({
           )}
         </div>
 
-        {/* Market Sentiment */}
         <div className="bg-[#0D1117] rounded-xl border border-[#1C2333] p-5">
           <div className="flex items-center justify-between mb-4">
             <div>

@@ -50,11 +50,9 @@ actor TokensightAI {
   };
 
   // ---- Premium Subscriptions ----
-  // Stores expiry timestamp (Int) per Principal — kept as Int for stable variable compatibility.
   let subscriptions = Map.empty<Principal, Int>();
   let verifiedTxids = Map.empty<Text, Int>(); // txid -> timestamp
 
-  // Recipient account for ICP payments
   let RECIPIENT_ACCOUNT = "255275225e5f08f8c2ae0f0873dc36063f6fe23be44299a37896054a4f40351d";
 
   public query ({ caller }) func isPremium() : async Bool {
@@ -68,13 +66,10 @@ actor TokensightAI {
     subscriptions.get(caller);
   };
 
-  // Verify ICP payment by querying the ICP ledger explorer API.
-  // Only grants Pro if a recent transaction to RECIPIENT_ACCOUNT is found.
   public shared (msg) func verifyIcpPayment(tier : Text) : async Text {
     let url = "https://ic-api.internetcomputer.org/api/v3/accounts/" # RECIPIENT_ACCOUNT # "/transactions?limit=10";
     try {
       let result = await Outcall.httpGetRequest(url, [], transform);
-      // Check if response contains transaction data (non-empty body indicates transactions exist)
       if (result.size() > 50) {
         let days : Int = if (tier == "yearly") { 365 } else { 30 };
         let nanos : Int = days * 24 * 60 * 60 * 1_000_000_000;
@@ -89,7 +84,6 @@ actor TokensightAI {
     };
   };
 
-  // Submit a TXID for premium verification (fallback manual method).
   public shared (msg) func submitTxidForVerification(txid : Text) : async Text {
     if (txid.size() != 64) {
       return "error:invalid_format";
@@ -142,5 +136,38 @@ actor TokensightAI {
   };
 
   let _timer = Timer.recurringTimer<system>(#seconds(300), doRefreshTokenCache);
+
+  // ---- Global Signal Store (Unified Brain) ----
+  // All active signals stored as JSON — this is the single source of truth
+  // that all browser instances sync from, ensuring every user sees identical signals.
+  var activeSignalsJson : Text = "[]";
+  var signalHistoryJson : Text = "[]";
+  var lastSignalUpdate : Int = 0;
+
+  // Push the full active signals JSON (called by whichever instance generates new signals)
+  public func putSignals(json : Text) : async () {
+    activeSignalsJson := json;
+    lastSignalUpdate := Time.now();
+  };
+
+  // Retrieve the canonical active signals JSON
+  public query func getSignals() : async Text {
+    activeSignalsJson;
+  };
+
+  // Push updated history JSON
+  public func putSignalHistory(json : Text) : async () {
+    signalHistoryJson := json;
+  };
+
+  // Retrieve the canonical signal history JSON
+  public query func getSignalHistory() : async Text {
+    signalHistoryJson;
+  };
+
+  // Get nanosecond timestamp of last signal update (for cache-invalidation checks)
+  public query func getLastSignalUpdate() : async Int {
+    lastSignalUpdate;
+  };
 
 };

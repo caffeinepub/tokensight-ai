@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/table";
 import { useState } from "react";
 import { fmtPrice } from "../lib/format";
-import type { SwingHistoryEntry } from "../lib/swingEngine";
+import type { SignalStatus, SwingHistoryEntry } from "../lib/swingEngine";
 
 interface Props {
   history: SwingHistoryEntry[];
@@ -24,13 +24,77 @@ function fmtDate(ts: number): string {
   });
 }
 
+function StatusBadge({ status }: { status: SignalStatus }) {
+  const configs: Record<
+    SignalStatus,
+    { label: string; color: string; bg: string; border: string }
+  > = {
+    LIVE: {
+      label: "● LIVE",
+      color: "#00FF88",
+      bg: "rgba(0,255,136,0.10)",
+      border: "#00FF8840",
+    },
+    TP1_HIT: {
+      label: "✅ TP1 HIT",
+      color: "#00FF88",
+      bg: "rgba(0,255,136,0.12)",
+      border: "#00FF8860",
+    },
+    TP2_HIT: {
+      label: "🔥 TP2 HIT",
+      color: "#D4AF37",
+      bg: "rgba(212,175,55,0.12)",
+      border: "#D4AF3760",
+    },
+    TP3_HIT: {
+      label: "🏆 TP3 HIT",
+      color: "#FFD700",
+      bg: "rgba(255,215,0,0.15)",
+      border: "#FFD70060",
+    },
+    SL_HIT: {
+      label: "🔴 SL HIT",
+      color: "#FF3B5C",
+      bg: "rgba(255,59,92,0.12)",
+      border: "#FF3B5C40",
+    },
+    INVALIDATED: {
+      label: "❌ INVALIDATED",
+      color: "#6B7280",
+      bg: "rgba(107,114,128,0.12)",
+      border: "#6B728040",
+    },
+    EXPIRED: {
+      label: "⌛ EXPIRED",
+      color: "#4B5563",
+      bg: "rgba(75,85,99,0.12)",
+      border: "#4B556340",
+    },
+  };
+  const cfg = configs[status] ?? configs.EXPIRED;
+  return (
+    <Badge
+      className="text-[9px] font-mono border whitespace-nowrap"
+      style={{
+        background: cfg.bg,
+        color: cfg.color,
+        borderColor: cfg.border,
+      }}
+    >
+      {cfg.label}
+    </Badge>
+  );
+}
+
 function calcProfit(
   entry: number,
   direction: "BUY" | "SELL",
   tp3: number,
-  status: string,
+  status: SignalStatus,
 ): string | null {
-  if (status === "Expired") return null;
+  if (status === "EXPIRED" || status === "INVALIDATED" || status === "SL_HIT")
+    return null;
   const pct =
     direction === "BUY"
       ? ((tp3 - entry) / entry) * 100
@@ -44,9 +108,14 @@ export function SignalHistoryTab({ history, activeSignalsCount = 0 }: Props) {
 
   const displayed =
     subTab === "golden" ? history.filter((e) => e.isGolden) : history;
-  const wins = history.filter((e) => e.status === "Completed").length;
+  const wins = history.filter(
+    (e) =>
+      e.status === "TP1_HIT" ||
+      e.status === "TP2_HIT" ||
+      e.status === "TP3_HIT",
+  ).length;
   const total = history.length;
-  const winRate = total > 0 ? ((wins / total) * 100).toFixed(1) : "92.5";
+  const winRate = total > 0 ? ((wins / total) * 100).toFixed(1) : null;
 
   return (
     <section data-ocid="history.section">
@@ -58,7 +127,11 @@ export function SignalHistoryTab({ history, activeSignalsCount = 0 }: Props) {
             color: "#00FF88",
           },
           { label: "Total History", value: total, color: "#D4AF37" },
-          { label: "Win Rate", value: `${winRate}%`, color: "#00D4FF" },
+          {
+            label: "Win Rate",
+            value: winRate ? `${winRate}%` : "Training...",
+            color: "#00D4FF",
+          },
         ].map(({ label, value, color }) => (
           <div
             key={label}
@@ -89,7 +162,7 @@ export function SignalHistoryTab({ history, activeSignalsCount = 0 }: Props) {
                 subTab === tab ? "rgba(212,175,55,0.08)" : "transparent",
             }}
           >
-            {tab === "all" ? "All History" : "\u2726 Golden Track Record"}
+            {tab === "all" ? "All History" : "✦ Golden Track Record"}
           </button>
         ))}
       </div>
@@ -99,8 +172,8 @@ export function SignalHistoryTab({ history, activeSignalsCount = 0 }: Props) {
           data-ocid="history.empty_state"
           className="text-center py-16 text-gray-600 font-mono text-sm"
         >
-          No signals in history yet \u2014 active signals archive here after 24
-          hours.
+          No resolved signals yet — signals archive here instantly when TP, SL,
+          or expiry is reached.
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-[#1C2333]">
@@ -109,14 +182,15 @@ export function SignalHistoryTab({ history, activeSignalsCount = 0 }: Props) {
               <TableRow className="border-[#1C2333] hover:bg-transparent">
                 {[
                   "Asset",
-                  "Direction",
+                  "ID",
+                  "Dir.",
                   "Entry",
                   "TP3",
                   "SL",
-                  "Confidence",
+                  "Conf.",
                   "Profit",
                   "Date",
-                  "Status",
+                  "Outcome",
                 ].map((h) => (
                   <TableHead
                     key={h}
@@ -137,6 +211,7 @@ export function SignalHistoryTab({ history, activeSignalsCount = 0 }: Props) {
                 );
                 const dirColor =
                   entry.direction === "BUY" ? "#00FF88" : "#FF3B5C";
+                const shortId = entry.id.slice(-8);
                 return (
                   <TableRow
                     key={entry.id}
@@ -146,10 +221,14 @@ export function SignalHistoryTab({ history, activeSignalsCount = 0 }: Props) {
                     <TableCell className="font-mono text-xs text-white">
                       <div className="flex items-center gap-1.5">
                         {entry.isGolden && (
-                          <span className="text-[#D4AF37]">\u2726</span>
+                          <span className="text-[#D4AF37]">✦</span>
                         )}
+                        {entry.isGem && <span className="text-[10px]">💎</span>}
                         {entry.coin}
                       </div>
+                    </TableCell>
+                    <TableCell className="font-mono text-[10px] text-gray-600">
+                      #{shortId}
                     </TableCell>
                     <TableCell>
                       <span
@@ -163,9 +242,7 @@ export function SignalHistoryTab({ history, activeSignalsCount = 0 }: Props) {
                               : "rgba(255,59,92,0.1)",
                         }}
                       >
-                        {entry.direction === "BUY"
-                          ? "\u25b2 BUY"
-                          : "\u25bc SELL"}
+                        {entry.direction === "BUY" ? "▲ BUY" : "▼ SELL"}
                       </span>
                     </TableCell>
                     <TableCell
@@ -199,31 +276,39 @@ export function SignalHistoryTab({ history, activeSignalsCount = 0 }: Props) {
                             : "#6B7280",
                       }}
                     >
-                      {profit ?? "\u2014"}
+                      {profit ?? "—"}
                     </TableCell>
                     <TableCell className="font-mono text-[10px] text-gray-500">
                       {fmtDate(entry.completedAt)}
                     </TableCell>
                     <TableCell>
-                      <Badge
-                        className="text-[9px] font-mono border"
-                        style={{
-                          background:
-                            entry.status === "Completed"
-                              ? "rgba(0,255,136,0.1)"
-                              : "rgba(107,114,128,0.1)",
-                          color:
-                            entry.status === "Completed"
-                              ? "#00FF88"
-                              : "#6B7280",
-                          borderColor:
-                            entry.status === "Completed"
-                              ? "#00FF8840"
-                              : "#6B728040",
-                        }}
-                      >
-                        {entry.status}
-                      </Badge>
+                      <div className="flex flex-col gap-1">
+                        <StatusBadge status={entry.status} />
+                        {entry.fomoRisk && (
+                          <span
+                            className="text-[8px] font-mono px-1.5 py-0.5 rounded border whitespace-nowrap"
+                            style={{
+                              color: "#FF3B5C",
+                              borderColor: "#FF3B5C30",
+                              background: "rgba(255,59,92,0.08)",
+                            }}
+                          >
+                            ⚠️ FOMO
+                          </span>
+                        )}
+                        {entry.smartMoneyEntry && (
+                          <span
+                            className="text-[8px] font-mono px-1.5 py-0.5 rounded border whitespace-nowrap"
+                            style={{
+                              color: "#00FF88",
+                              borderColor: "#00FF8830",
+                              background: "rgba(0,255,136,0.06)",
+                            }}
+                          >
+                            🧠 SM ENTRY
+                          </span>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 );

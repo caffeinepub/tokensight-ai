@@ -29,6 +29,12 @@ export type backendInterface = {
   refreshTokenCache(): Promise<undefined>;
   getTokenCache(): Promise<string>;
   getLastRefresh(): Promise<bigint>;
+  // Unified Signal Sync — canister as single source of truth
+  putSignals(json: string): Promise<undefined>;
+  getSignals(): Promise<string>;
+  putSignalHistory(json: string): Promise<undefined>;
+  getSignalHistory(): Promise<string>;
+  getLastSignalUpdate(): Promise<bigint>;
 };
 
 export interface CreateActorOptions {
@@ -50,6 +56,12 @@ const idlFactory = ({ IDL }: { IDL: any }) => {
     refreshTokenCache: IDL.Func([], [], []),
     getTokenCache: IDL.Func([], [IDL.Text], ["query"]),
     getLastRefresh: IDL.Func([], [IDL.Nat64], ["query"]),
+    // Signal sync
+    putSignals: IDL.Func([IDL.Text], [], []),
+    getSignals: IDL.Func([], [IDL.Text], ["query"]),
+    putSignalHistory: IDL.Func([IDL.Text], [], []),
+    getSignalHistory: IDL.Func([], [IDL.Text], ["query"]),
+    getLastSignalUpdate: IDL.Func([], [IDL.Nat64], ["query"]),
   });
 };
 

@@ -11,5 +11,6 @@ interface Window {
     wsStatus: "connecting" | "live" | "disconnected";
     lastTickAt: number;
     isScannerRunning: boolean;
+    fearGreedValue: number | null;
   };
 }

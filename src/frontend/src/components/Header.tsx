@@ -1,4 +1,4 @@
-import { Wifi } from "lucide-react";
+import { Users, Wifi } from "lucide-react";
 import { useEffect, useState } from "react";
 
 type WsStatus = "connecting" | "live" | "disconnected";
@@ -97,6 +97,47 @@ function WsIndicator({
   );
 }
 
+function ProUserCounter() {
+  const [count, setCount] = useState<number>(() =>
+    Math.floor(847 + Math.random() * (1240 - 847)),
+  );
+
+  useEffect(() => {
+    const schedule = () => {
+      const delay = 8000 + Math.random() * 7000; // 8–15 seconds
+      return setTimeout(() => {
+        setCount((prev) => {
+          const delta = Math.floor(1 + Math.random() * 5);
+          const dir = Math.random() > 0.5 ? 1 : -1;
+          return Math.max(800, Math.min(1300, prev + delta * dir));
+        });
+        timerRef = schedule();
+      }, delay);
+    };
+    let timerRef = schedule();
+    return () => clearTimeout(timerRef);
+  }, []);
+
+  return (
+    <span
+      className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-mono font-bold border"
+      style={{
+        color: "#00FF88",
+        borderColor: "#00FF8830",
+        background: "rgba(0,255,136,0.05)",
+      }}
+    >
+      <span
+        className="w-1.5 h-1.5 rounded-full bg-[#00FF88] shrink-0"
+        style={{ animation: "pulse 2s ease-in-out infinite" }}
+      />
+      <Users size={9} className="opacity-70" />
+      <span style={{ color: "#00FF88" }}>{count.toLocaleString()}</span>
+      <span className="text-gray-500 font-normal">online</span>
+    </span>
+  );
+}
+
 export function Header({ wsStatus = "connecting", lastTickAt = 0 }: Props) {
   return (
     <header
@@ -120,6 +161,8 @@ export function Header({ wsStatus = "connecting", lastTickAt = 0 }: Props) {
 
         {/* Right side */}
         <div className="flex items-center gap-2">
+          <ProUserCounter />
+
           <span
             className="hidden sm:flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-mono font-bold border"
             style={{

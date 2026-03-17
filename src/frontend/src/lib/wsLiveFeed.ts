@@ -36,6 +36,7 @@ function ensureUltraState(): void {
       wsStatus: "connecting",
       lastTickAt: 0,
       isScannerRunning: false,
+      fearGreedValue: null,
     };
   }
 }

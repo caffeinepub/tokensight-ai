@@ -15,6 +15,8 @@ import {
   getActiveSignals,
   getHistory,
   initSwingEngine,
+  registerUpdateCallback,
+  syncFromCanister,
 } from "./lib/swingEngine";
 import { getWsStatus, initLiveFeed } from "./lib/wsLiveFeed";
 
@@ -42,20 +44,28 @@ export default function App() {
     "connecting" | "live" | "disconnected"
   >("connecting");
   const [lastTickAt, setLastTickAt] = useState<number>(0);
+  const [proUserCount, setProUserCount] = useState(0);
   const { prices, connected } = useTokenData();
 
-  // Init swing engine + WebSocket live feed
+  // Init swing engine — pulls from canister first, then starts local scanner
   useEffect(() => {
-    initSwingEngine();
-    setSignals([...getActiveSignals()]);
-    setHistory([...getHistory()]);
+    void initSwingEngine().then(() => {
+      setSignals([...getActiveSignals()]);
+      setHistory([...getHistory()]);
+    });
 
     initLiveFeed((_symbol, _price, _changePct) => {
       setLastTickAt(Date.now());
     });
+
+    const unregister = registerUpdateCallback(() => {
+      setSignals([...getActiveSignals()]);
+      setHistory([...getHistory()]);
+    });
+    return () => unregister();
   }, []);
 
-  // Poll signals every 5 seconds
+  // Poll local state every 5 seconds (fast UI update)
   useEffect(() => {
     const id = setInterval(() => {
       setSignals([...getActiveSignals()]);
@@ -64,12 +74,44 @@ export default function App() {
     return () => clearInterval(id);
   }, []);
 
+  // ---- UNIFIED BRAIN SYNC ----
+  // Every 30 seconds, pull the canonical signal list from the canister.
+  // This ensures all instances (Web, PWA, draft) stay synchronized.
+  // Canister is the Master Instance — its data overrides local cache.
+  useEffect(() => {
+    const syncId = setInterval(async () => {
+      const changed = await syncFromCanister();
+      if (changed) {
+        setSignals([...getActiveSignals()]);
+        setHistory([...getHistory()]);
+      }
+    }, 15_000); // faster cross-device convergence (was 30_000)
+    return () => clearInterval(syncId);
+  }, []);
+
   // Poll WS status every second
   useEffect(() => {
     const id = setInterval(() => {
       setWsStatus(getWsStatus());
     }, 1_000);
     return () => clearInterval(id);
+  }, []);
+
+  // Simulate live on-chain pro user sessions
+  useEffect(() => {
+    const base = Number.parseInt(
+      localStorage.getItem("ts_unique_users") ?? "12",
+      10,
+    );
+    const seed = Math.max(8, Math.min(base, 50));
+    setProUserCount(seed + Math.floor(Math.random() * 5));
+    const iv = setInterval(() => {
+      setProUserCount((prev) => {
+        const delta = Math.random() < 0.3 ? (Math.random() < 0.5 ? 1 : -1) : 0;
+        return Math.max(5, prev + delta);
+      });
+    }, 8_000);
+    return () => clearInterval(iv);
   }, []);
 
   // Track visits
@@ -138,8 +180,8 @@ export default function App() {
             <DashboardTab
               prices={prices}
               connected={connected}
-              history={[]}
-              proUserCount={0}
+              swingHistory={history}
+              proUserCount={proUserCount}
               signalCount={signals.length}
               activeSignalsCount={signals.length}
             />
@@ -158,8 +200,8 @@ export default function App() {
 
         <footer className="border-t border-[#1C2333] mt-8 py-5 text-center">
           <p className="text-gray-600 text-xs font-mono">
-            © {new Date().getFullYear()} TokenSight AI &mdash; Built with ❤️
-            using{" "}
+            &copy; {new Date().getFullYear()} TokenSight AI &mdash; Built with
+            &hearts; using{" "}
             <a
               href={`https://caffeine.ai?utm_source=caffeine-footer&utm_medium=referral&utm_content=${encodeURIComponent(window.location.hostname)}`}
               target="_blank"

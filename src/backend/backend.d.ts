@@ -15,4 +15,10 @@ export interface _SERVICE {
   refreshTokenCache: ActorMethod<[], undefined>;
   getTokenCache: ActorMethod<[], string>;
   getLastRefresh: ActorMethod<[], bigint>;
+  // Unified Signal Sync
+  putSignals: ActorMethod<[string], undefined>;
+  getSignals: ActorMethod<[], string>;
+  putSignalHistory: ActorMethod<[string], undefined>;
+  getSignalHistory: ActorMethod<[], string>;
+  getLastSignalUpdate: ActorMethod<[], bigint>;
 }
