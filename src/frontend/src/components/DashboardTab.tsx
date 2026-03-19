@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { TokenPrice } from "../hooks/useTokenData";
 import { COIN_NAMES, TRACKED_SYMBOLS } from "../hooks/useTokenData";
 import { fmtPrice } from "../lib/format";
-import type { SwingHistoryEntry } from "../lib/swingEngine";
+import type { SwingHistoryEntry, SwingSignal } from "../lib/swingEngine";
 import { setFearGreedValue } from "../lib/swingEngine";
 import { ModelPerformance } from "./ModelPerformance";
 import { SentimentGauge } from "./SentimentGauge";
@@ -15,6 +15,7 @@ interface Props {
   proUserCount: number;
   signalCount?: number;
   activeSignalsCount?: number;
+  topSignal?: SwingSignal | null;
 }
 
 const COIN_COLORS: Record<string, string> = {
@@ -78,6 +79,7 @@ export function DashboardTab({
   proUserCount,
   signalCount = 0,
   activeSignalsCount,
+  topSignal,
 }: Props) {
   const [fearGreed, setFearGreed] = useState<FearGreed | null>(null);
   const [fgLoading, setFgLoading] = useState(true);
@@ -272,6 +274,40 @@ export function DashboardTab({
         ))}
       </div>
 
+      {/* Top Pick of the Week — unified across Dashboard, Live Signals, and Golden Sniper */}
+      {topSignal && (
+        <div className="rounded-xl border border-[#D4AF37]/40 bg-gradient-to-r from-[#1A1600]/80 to-[#0B0E11] p-4 flex items-center gap-4">
+          <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-[#D4AF37]/20 flex items-center justify-center">
+            <span className="text-[#D4AF37] font-black text-sm">TS</span>
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-xs text-[#D4AF37] font-mono font-bold uppercase tracking-widest mb-0.5">
+              Golden Sniper — Top Pick This Week
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-white font-bold text-base">
+                {topSignal.coin} ({topSignal.symbol})
+              </span>
+              <span
+                className={`text-xs font-bold px-2 py-0.5 rounded ${topSignal.direction === "BUY" ? "bg-[#00FF88]/20 text-[#00FF88]" : "bg-[#FF4444]/20 text-[#FF4444]"}`}
+              >
+                {topSignal.direction}
+              </span>
+              <span className="text-[#D4AF37] text-xs font-mono">
+                {topSignal.confidence.toFixed(1)}% conf
+              </span>
+            </div>
+          </div>
+          <div className="text-right flex-shrink-0">
+            <div className="text-xs text-gray-400 font-mono">Entry</div>
+            <div className="text-white font-mono text-sm font-semibold">
+              {typeof topSignal.entry === "number"
+                ? topSignal.entry.toFixed(topSignal.entry < 1 ? 8 : 2)
+                : topSignal.entry}
+            </div>
+          </div>
+        </div>
+      )}
       {/* Model Performance Section */}
       <ModelPerformance />
 

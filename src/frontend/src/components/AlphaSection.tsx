@@ -13,6 +13,7 @@
 import { Share2 } from "lucide-react";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { fmtPrice } from "../lib/format";
+import { getWeeklyGoldenSniper } from "../lib/swingEngine";
 import type { SignalStatus, SwingSignal } from "../lib/swingEngine";
 import { GoldenSniper } from "./GoldenSniper";
 
@@ -483,10 +484,13 @@ export function AlphaSection({ signals }: Props) {
     }
   }, [lockedSignals]);
 
-  const goldenSignal = useMemo(
-    () => lockedSignals.find((s) => s.isGolden) ?? null,
-    [lockedSignals],
-  );
+  const goldenSignal = useMemo(() => {
+    // Prefer the weekly-locked Golden Sniper (stable for 1 week)
+    const weekly = getWeeklyGoldenSniper();
+    if (weekly) return weekly;
+    // Fallback: highest-confidence golden in current active list
+    return lockedSignals.find((s) => s.isGolden) ?? null;
+  }, [lockedSignals]);
 
   // Apply filter — default "ALL" shows everything (fixes count mismatch)
   const filteredSignals = useMemo(() => {

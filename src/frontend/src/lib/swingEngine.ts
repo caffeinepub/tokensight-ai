@@ -94,6 +94,10 @@ const HISTORY_KEY = "ts_history_v5";
 const GOLDEN_KEY = "ts_golden_signals";
 const SIGNAL_DURATION = 24 * 60 * 60 * 1000;
 const ENTRY_ZONE_WINDOW = 60 * 60 * 1000;
+const WEEKLY_GOLDEN_KEY = "ts_weekly_golden_sniper_v1";
+const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+// Minimum profit-potential improvement required to dethrone weekly golden (20%)
+const GOLDEN_UPGRADE_THRESHOLD = 0.2;
 
 export const SYMBOL_META: Record<
   string,
@@ -298,6 +302,59 @@ function loadGoldenFromStorage(): SwingSignal[] {
   } catch {
     return [];
   }
+}
+
+interface WeeklyGoldenRecord {
+  signal: SwingSignal;
+  lockedAt: number;
+  profitPotential: number;
+}
+
+function calcProfitPotential(s: SwingSignal): number {
+  // profit potential = confidence * RR ratio
+  const rr = Number.parseFloat(s.rrRatio) || 1;
+  return s.confidence * rr;
+}
+
+export function getWeeklyGoldenSniper(): SwingSignal | null {
+  try {
+    const raw = localStorage.getItem(WEEKLY_GOLDEN_KEY);
+    if (!raw) return null;
+    const rec = JSON.parse(raw) as WeeklyGoldenRecord;
+    if (!rec?.signal) return null;
+    return rec.signal;
+  } catch {
+    return null;
+  }
+}
+
+function tryUpdateWeeklyGolden(candidate: SwingSignal): void {
+  try {
+    const raw = localStorage.getItem(WEEKLY_GOLDEN_KEY);
+    const now = Date.now();
+    if (!raw) {
+      const rec: WeeklyGoldenRecord = {
+        signal: candidate,
+        lockedAt: now,
+        profitPotential: calcProfitPotential(candidate),
+      };
+      localStorage.setItem(WEEKLY_GOLDEN_KEY, JSON.stringify(rec));
+      return;
+    }
+    const rec = JSON.parse(raw) as WeeklyGoldenRecord;
+    const isExpired = now - rec.lockedAt > ONE_WEEK_MS;
+    const newPP = calcProfitPotential(candidate);
+    const significantly_better =
+      newPP > rec.profitPotential * (1 + GOLDEN_UPGRADE_THRESHOLD);
+    if (isExpired || significantly_better) {
+      const updated: WeeklyGoldenRecord = {
+        signal: candidate,
+        lockedAt: now,
+        profitPotential: newPP,
+      };
+      localStorage.setItem(WEEKLY_GOLDEN_KEY, JSON.stringify(updated));
+    }
+  } catch {}
 }
 
 function getEffectivePrice(symbol: string): number | null {
@@ -524,6 +581,7 @@ async function runSwingScan(): Promise<void> {
     existingIds.add(signal.id);
     existingSymbols.add(symbol);
     changed = true;
+    if (isGolden) tryUpdateWeeklyGolden(signal);
   }
 
   if (changed) {

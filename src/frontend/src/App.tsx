@@ -14,6 +14,7 @@ import type { SwingHistoryEntry, SwingSignal } from "./lib/swingEngine";
 import {
   getActiveSignals,
   getHistory,
+  getWeeklyGoldenSniper,
   initSwingEngine,
   registerUpdateCallback,
   syncFromCanister,
@@ -65,17 +66,17 @@ export default function App() {
     return () => unregister();
   }, []);
 
-  // Poll local state every 5 seconds (fast UI update)
+  // Poll local state every 1 second (fast UI update)
   useEffect(() => {
     const id = setInterval(() => {
       setSignals([...getActiveSignals()]);
       setHistory([...getHistory()]);
-    }, 5_000);
+    }, 1_000);
     return () => clearInterval(id);
   }, []);
 
   // ---- UNIFIED BRAIN SYNC ----
-  // Every 30 seconds, pull the canonical signal list from the canister.
+  // Every 1 second, pull the canonical signal list from the canister.
   // This ensures all instances (Web, PWA, draft) stay synchronized.
   // Canister is the Master Instance — its data overrides local cache.
   useEffect(() => {
@@ -85,7 +86,7 @@ export default function App() {
         setSignals([...getActiveSignals()]);
         setHistory([...getHistory()]);
       }
-    }, 15_000); // faster cross-device convergence (was 30_000)
+    }, 1_000); // 1-second cross-device sync for maximum consistency
     return () => clearInterval(syncId);
   }, []);
 
@@ -184,6 +185,12 @@ export default function App() {
               proUserCount={proUserCount}
               signalCount={signals.length}
               activeSignalsCount={signals.length}
+              topSignal={
+                getWeeklyGoldenSniper() ??
+                signals.find((s) => s.isGolden) ??
+                signals[0] ??
+                null
+              }
             />
           )}
           {activeTab === "signals" && <AlphaSection signals={signals} />}
