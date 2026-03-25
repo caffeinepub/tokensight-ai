@@ -260,6 +260,35 @@ const SignalCard = memo(
                     💎 GEM
                   </span>
                 )}
+                {/* Confidence Tier Badge */}
+                {(() => {
+                  const c = signal.confidence;
+                  if (c >= 98.5) return null; // golden already has its own badge
+                  let tier: string;
+                  let color: string;
+                  if (c >= 95) {
+                    tier = "⚡ ELITE";
+                    color = "#00FF88";
+                  } else if (c >= 85) {
+                    tier = "◈ STANDARD";
+                    color = "#00D4FF";
+                  } else {
+                    tier = "◇ DEVELOPING";
+                    color = "#F59E0B";
+                  }
+                  return (
+                    <span
+                      className="text-[10px] font-mono px-2 py-0.5 rounded-full font-bold border"
+                      style={{
+                        color,
+                        borderColor: `${color}60`,
+                        background: `${color}12`,
+                      }}
+                    >
+                      {tier}
+                    </span>
+                  );
+                })()}
                 {signal.fomoRisk && (
                   <span
                     className="text-[9px] font-mono px-1.5 py-0.5 rounded-full font-bold border"
@@ -531,7 +560,7 @@ export function AlphaSection({ signals }: Props) {
             Active Swing Signals
           </h2>
           <p className="text-gray-500 text-xs font-mono mt-0.5">
-            DRL/LSTM + Transformer · 30 Assets · 24H Signal Lifecycle
+            DRL/LSTM + Transformer · 30 Assets · 75%+ Confidence · BUY & SELL
           </p>
         </div>
         <span
@@ -603,7 +632,7 @@ export function AlphaSection({ signals }: Props) {
             <span className="text-[#D4AF37]/50 text-lg">◉</span>
           </div>
           {filter === "ALL"
-            ? "DRL Scanner active — awaiting high-confidence setups (>95%)"
+            ? "DRL Scanner active — scanning for setups (≥75% confidence)"
             : `No ${filter.toLowerCase()} signals active. Switch to All to see all signals.`}
         </div>
       ) : (

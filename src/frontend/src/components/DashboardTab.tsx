@@ -1,4 +1,11 @@
-import { Activity, BarChart2, TrendingUp, Users } from "lucide-react";
+import {
+  Activity,
+  BarChart2,
+  Target,
+  TrendingDown,
+  TrendingUp,
+  Users,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { TokenPrice } from "../hooks/useTokenData";
 import { COIN_NAMES, TRACKED_SYMBOLS } from "../hooks/useTokenData";
@@ -274,40 +281,160 @@ export function DashboardTab({
         ))}
       </div>
 
-      {/* Top Pick of the Week — unified across Dashboard, Live Signals, and Golden Sniper */}
-      {topSignal && (
-        <div className="rounded-xl border border-[#D4AF37]/40 bg-gradient-to-r from-[#1A1600]/80 to-[#0B0E11] p-4 flex items-center gap-4">
-          <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-[#D4AF37]/20 flex items-center justify-center">
-            <span className="text-[#D4AF37] font-black text-sm">TS</span>
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-xs text-[#D4AF37] font-mono font-bold uppercase tracking-widest mb-0.5">
-              Golden Sniper — Top Pick This Week
+      {/* Golden Sniper — Top Pick This Week (3-column card) */}
+      {topSignal &&
+        (() => {
+          const isBuy = topSignal.direction === "BUY";
+          const actionColor = isBuy ? "#00FF88" : "#FF3B5C";
+          const borderColor = isBuy ? "#00FF8840" : "#FF3B5C40";
+          const profitPct =
+            topSignal.entry > 0 && topSignal.tp3 > 0
+              ? Math.abs((topSignal.tp3 - topSignal.entry) / topSignal.entry) *
+                100
+              : null;
+          const profitPrefix = isBuy ? "+" : "-";
+          return (
+            <div
+              className="rounded-xl overflow-hidden"
+              style={{
+                border: `1px solid ${borderColor}`,
+                background: "linear-gradient(135deg, #0D1117 0%, #1A1400 100%)",
+              }}
+            >
+              {/* Card header */}
+              <div className="flex items-center justify-between px-4 py-2.5 border-b border-[#1C2333]">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-md bg-[#D4AF37]/20 flex items-center justify-center shrink-0">
+                    <span className="text-[#D4AF37] font-black text-[11px]">
+                      TS
+                    </span>
+                  </div>
+                  <span className="text-[#D4AF37] font-mono font-bold text-[11px] uppercase tracking-widest">
+                    GOLDEN SNIPER — TOP PICK THIS WEEK
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#00FF88] animate-pulse" />
+                  <span
+                    className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full"
+                    style={{
+                      color: "#00FF88",
+                      background: "rgba(0,255,136,0.10)",
+                      border: "1px solid #00FF8840",
+                    }}
+                  >
+                    ● LIVE
+                  </span>
+                </div>
+              </div>
+
+              {/* 3-column body */}
+              <div className="grid grid-cols-3 divide-x divide-[#1C2333]">
+                {/* Column 1 — Action */}
+                <div className="px-4 py-4 flex flex-col gap-2">
+                  <p className="text-gray-500 text-[10px] font-mono uppercase tracking-wider">
+                    Action
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+                      style={{
+                        background: `${actionColor}18`,
+                        border: `1px solid ${actionColor}40`,
+                      }}
+                    >
+                      {isBuy ? (
+                        <TrendingUp size={15} style={{ color: actionColor }} />
+                      ) : (
+                        <TrendingDown
+                          size={15}
+                          style={{ color: actionColor }}
+                        />
+                      )}
+                    </div>
+                    <span
+                      className="font-mono font-black text-lg leading-none"
+                      style={{ color: actionColor }}
+                    >
+                      {topSignal.direction}
+                    </span>
+                  </div>
+                  <p className="text-white font-bold text-sm leading-tight">
+                    {topSignal.coin}
+                    <span className="text-gray-500 text-[10px] font-mono ml-1">
+                      ({topSignal.symbol.replace("USDT", "")})
+                    </span>
+                  </p>
+                  <span
+                    className="text-[10px] font-mono font-bold px-2 py-0.5 rounded self-start"
+                    style={{
+                      color: actionColor,
+                      background: `${actionColor}18`,
+                      border: `1px solid ${actionColor}30`,
+                    }}
+                  >
+                    {topSignal.confidence.toFixed(1)}% conf
+                  </span>
+                </div>
+
+                {/* Column 2 — Entry Price */}
+                <div className="px-4 py-4 flex flex-col gap-2">
+                  <p className="text-gray-500 text-[10px] font-mono uppercase tracking-wider">
+                    Entry Price
+                  </p>
+                  <p
+                    className="font-mono font-black text-lg leading-none"
+                    style={{ color: "#D4AF37" }}
+                  >
+                    {fmtPrice(topSignal.entry)}
+                  </p>
+                  <p className="text-gray-500 text-[10px] font-mono">
+                    Locked at creation
+                  </p>
+                  <span
+                    className="text-[10px] font-mono px-2 py-0.5 rounded self-start"
+                    style={{
+                      color: "#00D4FF",
+                      background: "rgba(0,212,255,0.10)",
+                      border: "1px solid rgba(0,212,255,0.25)",
+                    }}
+                  >
+                    4H + 1D
+                  </span>
+                </div>
+
+                {/* Column 3 — Target Profit */}
+                <div className="px-4 py-4 flex flex-col gap-2">
+                  <div className="flex items-center gap-1.5">
+                    <Target size={11} style={{ color: "#FFD700" }} />
+                    <p className="text-gray-500 text-[10px] font-mono uppercase tracking-wider">
+                      Target Profit
+                    </p>
+                  </div>
+                  <p
+                    className="font-mono font-black text-lg leading-none"
+                    style={{ color: "#FFD700" }}
+                  >
+                    {fmtPrice(topSignal.tp3)}
+                  </p>
+                  {profitPct !== null && (
+                    <p
+                      className="font-mono font-bold text-sm"
+                      style={{ color: actionColor }}
+                    >
+                      {profitPrefix}
+                      {profitPct.toFixed(2)}%
+                    </p>
+                  )}
+                  <p className="text-gray-500 text-[10px] font-mono">
+                    TP3 Target
+                  </p>
+                </div>
+              </div>
             </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-white font-bold text-base">
-                {topSignal.coin} ({topSignal.symbol})
-              </span>
-              <span
-                className={`text-xs font-bold px-2 py-0.5 rounded ${topSignal.direction === "BUY" ? "bg-[#00FF88]/20 text-[#00FF88]" : "bg-[#FF4444]/20 text-[#FF4444]"}`}
-              >
-                {topSignal.direction}
-              </span>
-              <span className="text-[#D4AF37] text-xs font-mono">
-                {topSignal.confidence.toFixed(1)}% conf
-              </span>
-            </div>
-          </div>
-          <div className="text-right flex-shrink-0">
-            <div className="text-xs text-gray-400 font-mono">Entry</div>
-            <div className="text-white font-mono text-sm font-semibold">
-              {typeof topSignal.entry === "number"
-                ? topSignal.entry.toFixed(topSignal.entry < 1 ? 8 : 2)
-                : topSignal.entry}
-            </div>
-          </div>
-        </div>
-      )}
+          );
+        })()}
+
       {/* Model Performance Section */}
       <ModelPerformance />
 

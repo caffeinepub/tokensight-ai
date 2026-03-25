@@ -1,4 +1,4 @@
-import { Crown } from "lucide-react";
+import { Crown, Target, TrendingDown, TrendingUp } from "lucide-react";
 import { fmtPrice } from "../lib/format";
 import type { SignalStatus, SwingSignal } from "../lib/swingEngine";
 
@@ -17,6 +17,16 @@ function relativeTime(ts: number): string {
   const days = Math.floor(hrs / 24);
   const remHrs = hrs % 24;
   return remHrs > 0 ? `${days}d ${remHrs}h ago` : `${days}d ago`;
+}
+
+function calcTargetProfitPct(
+  entry: number,
+  tp3: number,
+  direction: "BUY" | "SELL",
+): string {
+  if (!entry || !tp3) return "—";
+  const pct = Math.abs((tp3 - entry) / entry) * 100;
+  return `${direction === "BUY" ? "+" : "-"}${pct.toFixed(2)}%`;
 }
 
 const SCAN_CHECKS = [
@@ -143,7 +153,7 @@ function ScanningState() {
           DRL SCANNING MARKET...
         </p>
         <p className="text-gray-500 text-xs font-mono mb-4">
-          LSTM + Transformer awaiting 98.5%+ confidence Golden Sniper setup
+          180-day baseline + real-time alignment · awaiting 98.5%+ confidence
         </p>
         <div className="flex items-center justify-center gap-4">
           {SCAN_CHECKS.map((check, i) => (
@@ -165,6 +175,10 @@ function ScanningState() {
 
 export function GoldenSniper({ signal, scanningForGoldenSniper }: Props) {
   const shortId = signal ? signal.id.slice(-8) : null;
+  const targetProfitPct = signal
+    ? calcTargetProfitPct(signal.entry, signal.tp3, signal.direction)
+    : "—";
+  const dirColor = signal?.direction === "BUY" ? "#00FF88" : "#FF3B5C";
 
   return (
     <div
@@ -212,7 +226,8 @@ export function GoldenSniper({ signal, scanningForGoldenSniper }: Props) {
         <ScanningState />
       ) : (
         <div className="p-4">
-          <div className="flex items-center gap-2 mb-4">
+          {/* Coin + direction header */}
+          <div className="flex items-center gap-2 mb-3">
             <div
               className="w-9 h-9 rounded-full flex items-center justify-center font-mono font-bold text-xs"
               style={{
@@ -227,18 +242,22 @@ export function GoldenSniper({ signal, scanningForGoldenSniper }: Props) {
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-white font-bold">{signal.coin}</span>
                 <span
-                  className="text-[10px] font-mono px-2 py-0.5 rounded-full font-bold border"
+                  className="text-[10px] font-mono px-2 py-0.5 rounded-full font-bold border flex items-center gap-1"
                   style={{
-                    color: signal.direction === "BUY" ? "#00FF88" : "#FF3B5C",
-                    borderColor:
-                      signal.direction === "BUY" ? "#00FF88" : "#FF3B5C",
+                    color: dirColor,
+                    borderColor: dirColor,
                     background:
                       signal.direction === "BUY"
                         ? "rgba(0,255,136,0.12)"
                         : "rgba(255,59,92,0.12)",
                   }}
                 >
-                  {signal.direction === "BUY" ? "▲ BUY" : "▼ SELL"}
+                  {signal.direction === "BUY" ? (
+                    <TrendingUp size={10} />
+                  ) : (
+                    <TrendingDown size={10} />
+                  )}
+                  {signal.direction}
                 </span>
                 <StatusBadge status={signal.status} />
                 {signal.isGem && (
@@ -274,7 +293,93 @@ export function GoldenSniper({ signal, scanningForGoldenSniper }: Props) {
             </div>
           </div>
 
-          {/* FOMO / Smart Money badges */}
+          {/* KEY TRADING INFO: Action / Entry Price / Target Profit */}
+          <div className="grid grid-cols-3 gap-2 mb-3">
+            <div
+              className="rounded-lg p-3 text-center"
+              style={{
+                background:
+                  signal.direction === "BUY"
+                    ? "rgba(0,255,136,0.06)"
+                    : "rgba(255,59,92,0.06)",
+                border: `1px solid ${dirColor}30`,
+              }}
+            >
+              <div className="text-[9px] font-mono text-gray-500 mb-1">
+                ACTION
+              </div>
+              <div
+                className="font-mono font-black text-sm flex items-center justify-center gap-1"
+                style={{ color: dirColor }}
+              >
+                {signal.direction === "BUY" ? (
+                  <TrendingUp size={12} />
+                ) : (
+                  <TrendingDown size={12} />
+                )}
+                {signal.direction}
+              </div>
+              <div
+                className="text-[9px] font-mono mt-0.5"
+                style={{ color: dirColor }}
+              >
+                {signal.direction === "BUY" ? "Bullish" : "Bearish"}
+              </div>
+            </div>
+            <div
+              className="rounded-lg p-3 text-center"
+              style={{
+                background: "rgba(212,175,55,0.06)",
+                border: "1px solid #D4AF3730",
+              }}
+            >
+              <div className="text-[9px] font-mono text-gray-500 mb-1">
+                ENTRY PRICE
+              </div>
+              <div
+                className="font-mono font-bold text-sm text-[#D4AF37]"
+                style={{
+                  width: "auto",
+                  overflow: "visible",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {fmtPrice(signal.entry)}
+              </div>
+              <div className="text-[9px] font-mono text-gray-600 mt-0.5">
+                Locked at creation
+              </div>
+            </div>
+            <div
+              className="rounded-lg p-3 text-center"
+              style={{
+                background: "rgba(255,215,0,0.06)",
+                border: "1px solid #FFD70030",
+              }}
+            >
+              <div className="text-[9px] font-mono text-gray-500 mb-1 flex items-center justify-center gap-1">
+                <Target size={8} /> TARGET PROFIT
+              </div>
+              <div
+                className="font-mono font-bold text-sm text-[#FFD700]"
+                style={{
+                  width: "auto",
+                  overflow: "visible",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {fmtPrice(signal.tp3)}
+              </div>
+              <div
+                className="font-mono font-black text-xs mt-0.5"
+                style={{ color: dirColor }}
+              >
+                {targetProfitPct}
+              </div>
+            </div>
+          </div>
+
+          {/* Badges */}
           <div className="flex items-center gap-1.5 mb-3 flex-wrap">
             {signal.fomoRisk && (
               <span
@@ -298,6 +403,18 @@ export function GoldenSniper({ signal, scanningForGoldenSniper }: Props) {
                 }}
               >
                 🧠 SMART MONEY ENTRY
+              </span>
+            )}
+            {signal.alignmentScore !== undefined && (
+              <span
+                className="text-[9px] font-mono px-2 py-0.5 rounded-full font-bold border"
+                style={{
+                  color: "#00D4FF",
+                  borderColor: "#00D4FF40",
+                  background: "rgba(0,212,255,0.08)",
+                }}
+              >
+                📊 {(signal.alignmentScore * 100).toFixed(0)}% ALIGNMENT
               </span>
             )}
           </div>

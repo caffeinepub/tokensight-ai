@@ -8,7 +8,7 @@ import Outcall "./http-outcalls/outcall";
 actor TokensightAI {
 
   // ---- Visitor Analytics ----
-  let visitors = Map.empty<Text, Int>(); // fingerprint -> last seen timestamp
+  let visitors = Map.empty<Text, Int>();
   var totalPageViews : Int = 0;
 
   public func trackVisit(fingerprint : Text) : async () {
@@ -51,7 +51,7 @@ actor TokensightAI {
 
   // ---- Premium Subscriptions ----
   let subscriptions = Map.empty<Principal, Int>();
-  let verifiedTxids = Map.empty<Text, Int>(); // txid -> timestamp
+  let verifiedTxids = Map.empty<Text, Int>();
 
   let RECIPIENT_ACCOUNT = "255275225e5f08f8c2ae0f0873dc36063f6fe23be44299a37896054a4f40351d";
 
@@ -137,37 +137,43 @@ actor TokensightAI {
 
   let _timer = Timer.recurringTimer<system>(#seconds(300), doRefreshTokenCache);
 
-  // ---- Global Signal Store (Unified Brain) ----
-  // All active signals stored as JSON — this is the single source of truth
-  // that all browser instances sync from, ensuring every user sees identical signals.
-  var activeSignalsJson : Text = "[]";
-  var signalHistoryJson : Text = "[]";
-  var lastSignalUpdate : Int = 0;
+  // ---- Global Signal Store — Stable Memory ----
+  stable var activeSignalsJson : Text = "[]";
+  stable var signalHistoryJson : Text = "[]";
+  stable var lastSignalUpdate : Int = 0;
 
-  // Push the full active signals JSON (called by whichever instance generates new signals)
   public func putSignals(json : Text) : async () {
     activeSignalsJson := json;
     lastSignalUpdate := Time.now();
   };
 
-  // Retrieve the canonical active signals JSON
   public query func getSignals() : async Text {
     activeSignalsJson;
   };
 
-  // Push updated history JSON
   public func putSignalHistory(json : Text) : async () {
     signalHistoryJson := json;
   };
 
-  // Retrieve the canonical signal history JSON
   public query func getSignalHistory() : async Text {
     signalHistoryJson;
   };
 
-  // Get nanosecond timestamp of last signal update (for cache-invalidation checks)
   public query func getLastSignalUpdate() : async Int {
     lastSignalUpdate;
+  };
+
+  // ---- Auto ML Pattern Store — Stable Memory ----
+  // Stores dual-directional learned patterns (bull/bear profit patterns per symbol).
+  // Persists across canister upgrades so the AI remembers successful Buy and Sell indicators.
+  stable var mlPatternsJson : Text = "{}";
+
+  public func putMLPatterns(json : Text) : async () {
+    mlPatternsJson := json;
+  };
+
+  public query func getMLPatterns() : async Text {
+    mlPatternsJson;
   };
 
 };
